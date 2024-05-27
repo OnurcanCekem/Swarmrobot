@@ -13,25 +13,27 @@
 #include <Servo.h>
 #include <IRremote.hpp>     //IRremote library statement 
 
-#define DEBUG 1
-#define IR_RECEIVE_PIN 3
+#define DEBUG
+#define IR_RECEIVE_PIN 3 //define the pins of IR receiver as D3
 #define servoPin A3  //servo Pin
 #define ML_Ctrl 2  //define the direction control pins of group B motor
 #define ML_PWM 5   //define the PWM control pins of group B motor
 #define MR_Ctrl 4  //define the direction control pins of group A motor
 #define MR_PWM 6   //define the PWM control pins of group A motor
+#define LED_PIN 9 //define the pin of LED as pin 9
+#define DECODE_NEC
+//#define IR_SEND_PIN 3
 
 // Pins
 int trigPin = 12;    // Trigger
 int echoPin = 13;    // Echo
-int RECV_PIN = 3;        //define the pins of IR receiver as D3
-int LED_PIN = 9;//define the pin of LED as pin 9
-
+IRsend irsend;
 
 // Variables
 int pos; //the angle variable of servo
 int pulsewidth; //pulse width variable of servo
 int distance;
+unsigned long ir_data; // Variable to store received infrared data
 long duration, cm, inches;
 char ble_val;// An integer variable used to store the value received by Bluetooth
 Servo servo_distance;  // create servo object to control a servo
@@ -56,7 +58,7 @@ void setup() {
   pinMode(ML_PWM, OUTPUT);//set PWM control pins of group B motor to output
   pinMode(MR_Ctrl, OUTPUT);//set direction control pins of group A motor to output
   pinMode(MR_PWM, OUTPUT);//set PWM control pins of group A motor to output
-  
+
   Serial.println("Damn homie, we chilling");
 }
 
@@ -167,7 +169,7 @@ void drive_stop(int ms_time)
 }
 
 // BT24 is the name of the module
-
+// Function to read bluetooth
 void bluetooth_read()
 {
   if (Serial.available() > 0) //Check whether there is data in the serial port cache
@@ -187,29 +189,78 @@ void bluetooth_read()
    }
 }
 
+// Function to send data over bluetooth
+void bluetooth_send(int data)
+{
+  Serial.println(data);
+}
+
+// Check infrared
+void infrared_receive()
+{
+    //Infrared sensor
+  if (IrReceiver.decode()) 
+  {
+    ir_data = IrReceiver.decodedIRData.decodedRawData;
+    Serial.print(ir_data, HEX); // Print "old" raw data
+    Serial.print(' '); // Print "old" raw data
+    Serial.println(ir_data); // Print "old" raw data
+    switch(ir_data)
+    {
+      case 0xFF02FD : //Receive 0xFF629D,the car goes forward
+      Serial.println("LET'S GOOOOO");
+      break;
+    }
+
+    IrReceiver.printIRResultShort(&Serial); // Print complete received data in one line
+    //IrReceiver.printIRSendUsage(&Serial);   // Print the statement required to send this data
+    IrReceiver.resume(); // Enable receiving of the next value
+
+    // if (ir_data == 0xFF02FD) Serial.println("LET'S GOOOOO");
+    delay(500);
+  }
+}
+
+void infrared_send()
+{
+  // unsigned long command = 0xBF40FF00;
+  // irsend.sendNEC(command, 32);
+  // Serial.println("IR signal sent");
+}
+
+
+int a;
 void loop() {
-  bluetooth_read();
+  // Read Bluetooth
+  bluetooth_read(); 
+  infrared_receive();
   // Distance sensor
   //distance = measure_distance(trigPin, echoPin);
   
-  //Infrared sensor
-  if (IrReceiver.decode()) {
-      Serial.println(IrReceiver.decodedIRData.decodedRawData, HEX); // Print "old" raw data
-      IrReceiver.printIRResultShort(&Serial); // Print complete received data in one line
-      IrReceiver.printIRSendUsage(&Serial);   // Print the statement required to send this data
-      IrReceiver.resume(); // Enable receiving of the next value
-      delay(1500);
-  }
+
   //Serial.println("Bozo");
   
   //turn_distance_sensor();
   // digitalWrite(9, HIGH); // turn the LED on (HIGH is the voltage level)
   // delay(125);
   // // digitalWrite(9, LOW); // turn the LED off by making the voltage LOW
-  // delay(125);
+  delay(250);
 
 
   // delay(2000);// delay in 2000ms
   
 }
+//     int a = 1;
+    // if (ir_data == 0xBF40FF00 && (a==0)) 
+    // {
+    //   a = 1;
+    //   Serial.println("OKAY");
+    //   digitalWrite(LED_PIN,HIGH);//LED will be on
+    // }
+    // else if (ir_data == 0xBF40FF00 && (a==1)) 
+    // {
+    //   a = 0;
+    //   Serial.println("OKAY AGAIN");
+    //   digitalWrite(LED_PIN,LOW);//LED will go off
+    // }
 //***************************************************************************
