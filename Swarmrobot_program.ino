@@ -1,7 +1,7 @@
 //
 // Author: Onurcan Cekem
-// Version: 0.2
-// Date: 31-05-2024
+// Version: 0.3
+// Date: 04-06-2024
 //***************************************************************************
 /*
  keyestudio 4wd BT Car
@@ -44,7 +44,7 @@ unsigned long data = 0xFF02FD; // Variable to store data
 long duration, cm, inches;
 char ble_val;// An integer variable used to store the value received by Bluetooth
 Servo servo_distance;  // create servo object to control a servo
-SoftwareSerial bt(0,1); /* Rx,Tx for bluetooth */	
+// SoftwareSerial bt(0,1); /* Rx,Tx for bluetooth */	
 QMC5883L compass; // Compass class
 
 uint8_t grid_map[5][5] = {{0,0,0,0,0},
@@ -52,8 +52,14 @@ uint8_t grid_map[5][5] = {{0,0,0,0,0},
                           {0,0,1,0,0},
                           {0,0,0,0,0},
                           {0,0,0,0,0}};
-uint8_t position[2] = {5,5}; // x,y
-uint8_t destination_coordinates[2] = {0,0};
+const int numRows = 5;
+const int numCols = 5;
+int position_y = 2;
+int position_x = 2; // x,y
+int calibrated_North = 135;
+int calibrated_East = 225;
+int calibrated_South = 315;
+int calibrated_West = 45;
 
 void setup() {
   //Serial Port begin
@@ -82,14 +88,12 @@ void setup() {
 	compass.init();
 	compass.setSamplingRate(50);
 
-  bt.begin(9600);	/* Define baud rate for software serial communication */
+  // bt.begin(9600);	/* Define baud rate for software serial communication */
   Serial.println("Damn homie, we chilling");
   
   delay(1000);
-  drive_10cm();
+  // drive_10cm();
 }
-
-
 
 // Function for distance sensor HC-SR04 to measure distance
 // Input: trigger pin: pin for sensor
@@ -281,6 +285,7 @@ void ir_receive()
   }
 }
 
+// Function to send data through IR.
 void ir_senddata(unsigned long data)
 {
   // IrReceiver.stop(); // Stop receiving IR, else sent IR echoes back to receiver. <-- Doesn't work
@@ -310,8 +315,8 @@ uint32_t reverseBits(uint32_t num) {
   return reversedNum;
 }
 
-// Read the serial port
-uint32_t readSerial()
+// Read the serial port for sending IR data
+uint32_t readSerial_IR()
 {
   if (Serial.available() > 0) 
   {
@@ -343,6 +348,46 @@ int readCompass()
   return heading;
 }
 
+// Function to turn the car until given degrees of direction
+void turn_until_degrees(int desired_direction)
+{
+  int current_direction = readCompass(); 
+  int difference = abs(current_direction-desired_direction);
+  int left, right; // counterclockwise
+  Serial.println("Difference: ");
+  Serial.println(difference);
+  while(difference >= 4) // Keep in function until direction is achieved
+  {
+    // Calculate difference
+    left = (current_direction - desired_direction + 360) % 360; // counterclockwise
+    right = (desired_direction - current_direction + 360) % 360; // clockwise
+
+  // Serial.print("Left: ");
+  // Serial.print(left);
+  // Serial.print("\t right: ");
+  // Serial.println(right);
+
+    // Determine shortest turn direction
+    if (left <= right) // Go left
+    {
+      drive_left(5); // counterclockwise
+    }
+    else // Go right
+    {
+      drive_right(5); // clockwise
+    }
+
+    current_direction = readCompass();  // Update current direction
+    // Serial.print("current direction in while: ");
+    // Serial.println(current_direction);
+    difference = abs(current_direction-desired_direction);
+  }
+  drive_stop(1);
+  Serial.print("Achieved desired: ");
+  Serial.println(desired_direction);
+}
+
+// Function to drive 10 cm forwards
 void drive_10cm()
 {
   int starting_distance, current_distance;
@@ -354,17 +399,124 @@ void drive_10cm()
   while (starting_distance - current_distance < 10)
   {
     // Serial.println(current_distance);
-    drive_forward(5);
+    
+    // Check if nothing is in front of car
     current_distance = measure_distance(trigPin, echoPin);
+    if(current_distance < 5)
+    {
+      Serial.println("BREAK, BELOW 5 CM");
+      break;
+    }
+    else drive_forward(5); // Else drive forward
   }
   drive_stop(1);
   Serial.print("ended 10cm. Distance: ");
   Serial.println(current_distance);
 }
 
+// Function to print the map grid.
+// Also updates position_y and y with wherever a 1 in the map is
+void print_map()
+{
+  for(int row = 0; row < numRows; row++)
+  {
+    for(int col = 0; col < numCols; col++)
+    {
+      // Find x and y of current location
+      if(grid_map[row][col] == 1)
+      {
+        position_y = row;
+        position_x = col;
+      }
+      Serial.print(grid_map[row][col]); // Print map
+      Serial.print("\t");
+    }
+    Serial.println();
+  }
+  // Print x and y coordinates
+  Serial.print("X: ");
+  Serial.print(position_x);
+  Serial.print(" Y: ");
+  Serial.print(position_y);
+  Serial.println();
+}
 
+/* Function to select a coordinates and drive to it
+  param desired_x: x-coordinates
+  param desired_y: y-coordinates
+*/
+void goto_coordinates(int desired_x, int desired_y)
+{
+  int heading;
+  // Drive to x
+  for(;;)
+  {
+    heading = readCompass(); // Read compass
+    if(position_x > desired_x) // Go left/West
+    {
+      turn_until_degrees(calibrated_West);
+      drive_10cm();
+      
+      // Update map
+      grid_map[position_y][position_x] = 0; // Remove old position
+      position_x -= 1;
+      grid_map[position_y][position_x] = 1; // Update current position
+      Serial.println("Go West");
+      // if (heading <= 90) drive_10_cm();
+    }
+    else if (position_x < desired_x) // Go right/East
+    {
+      turn_until_degrees(calibrated_East);
+      drive_10cm();
+      // Update map
+      grid_map[position_y][position_x] = 0; // Remove old position
+      position_x += 1;
+      grid_map[position_y][position_x] = 1; // Update current position
+      Serial.println("Go East");
+    }
+    else break; // position_x == desired_x // Desired x is found
+    Serial.println("Next pos");
+    print_map();
+    delay(500);
+  }
 
+  // Drive to y
+  for(;;)
+  {
+    heading = readCompass(); // Read compass
+    if(position_y > desired_y) // Go left/West
+    {
+      turn_until_degrees(calibrated_North);
+      drive_10cm();
+      
+      // Update map
+      grid_map[position_y][position_x] = 0; // Remove old position
+      position_y -= 1;
+      grid_map[position_y][position_x] = 1; // Update current position
+      Serial.println("Go North");
+      // if (heading <= 90) drive_10_cm();
+      // else ;
+    }
+    else if (position_y < desired_y) // Go right/East
+    {
+      turn_until_degrees(calibrated_South);
+      drive_10cm();
+      // Update map
+      grid_map[position_y][position_x] = 0; // Remove old position
+      position_y += 1;
+      grid_map[position_y][position_x] = 1; // Update current position
+      Serial.println("Go South");
+    }
+    else break; // position_y == desired_x // Desired x is found
+    Serial.println("Next pos");
+    print_map();
+    delay(500);
+  }
 
+  Serial.println("Destination arrived.");
+}
+
+int incomingByte; // for incoming serial data
 void loop() {
   // Read Bluetooth
   // readSerial();
@@ -386,14 +538,110 @@ void loop() {
   // }
 
   // Distance sensor
-  distance = measure_distance(trigPin, echoPin);
-  Serial.print("distance = ");
-  Serial.println(distance);
+  // distance = measure_distance(trigPin, echoPin);
+  // Serial.print("distance = ");
+  // Serial.println(distance);
 
-  // compass_data = readCompass();
-  delay(250);
+  if (Serial.available() > 0) {
+    // read the incoming byte:
+    String input = Serial.readStringUntil('\n');
 
-  // delay(2000);// delay in 2000ms
+    // Convert the string to an integer
+    // Convert the string to an unsigned int (hexadecimal)
+    
+    incomingByte = strtoul(input.c_str(), NULL, 16);
+    int data2 = input.toInt();
+    Serial.print("Data2: ");
+    Serial.println(data2);
+    // incomingByte = Serial.read();// read the incoming data as string
+    // // say what you got:
+    Serial.print("I received: ");
+    Serial.println(incomingByte);
+  }
+
+  if(incomingByte == 255)
+  {
+    // Serial.println("Let's go");
+    print_map();
+    delay(1000);
+    goto_coordinates(0,2);
+    // print_map();
+
+    delay(10000); // delay 
+  }
+
+
+  else if(incomingByte == 254)
+  {
+    // Serial.println("Let's go");
+    print_map();
+    delay(1000);
+    goto_coordinates(2,4);
+    // print_map();
+
+    delay(10000); // delay 
+  }
+
+  else if(incomingByte == 253)
+  {
+    // Serial.println("Let's go");
+    print_map();
+    delay(1000);
+    goto_coordinates(1,1);
+    // print_map();
+
+    delay(10000); // delay 
+  }
+
+  else if(incomingByte == 1) // Calibrate North
+  {
+    calibrated_North = readCompass(); // Read compass
+    delay(50);// delay
+  }
+
+  else if(incomingByte == 2) // Calibrate East
+  {
+    calibrated_East = readCompass(); // Read compass
+    delay(50);// delay 
+  }
+
+  else if(incomingByte == 3) // Calibrate South
+  {
+    calibrated_South = readCompass(); // Read compass
+    delay(50);// delay 
+  }
+
+  else if(incomingByte == 4) // Calibrate West
+  {
+    calibrated_West = readCompass(); // Read compass
+    delay(50);// delay 
+  }
+
+  else if(incomingByte == 5) // Reset map
+  {
+    grid_map[position_y][position_x] = 0;
+    position_y = 2;
+    position_x = 2;
+    grid_map[position_y][position_x] = 1;
+    delay(2000);// delay in 2000ms
+  }
+
+  else if(incomingByte == 6) // Reset map
+  {
+    // Serial.println("Let's go");
+    print_map();
+    delay(1000);
+    goto_coordinates(4,2); // x y
+    // print_map();
+
+    delay(10000);// delay in 2000ms
+  }
+  // Serial.println("You donno");
+  // find_current_location();
+  readCompass();
+  // turn_until_degrees(90);
+  // delay(1000);
+
   
     
   //turn_distance_sensor();
@@ -401,4 +649,24 @@ void loop() {
   // delay(125);
   // // digitalWrite(9, LOW); // turn the LED off by making the voltage LOW
 }
+// void find_current_location()
+// {
+//   for(int row = 0; row < numRows; row++)
+//   {
+//     for(int col = 0; col < numCols; col++)
+//     {
+//       if(grid_map[row][col] == 1)
+//       {
+//         position_y = row;
+//         position_x = col;
+//         Serial.print("X: ");
+//         Serial.print(position_y);
+//         Serial.print(" Y: ");
+//         Serial.print(position_x);
+//         Serial.println();
+//       }
+
+//     }
+//   }
+// }
 //***************************************************************************
