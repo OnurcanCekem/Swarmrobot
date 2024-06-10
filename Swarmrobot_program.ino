@@ -1,7 +1,7 @@
 //
 // Author: Onurcan Cekem
-// Version: 0.3
-// Date: 04-06-2024
+// Version: 0.4
+// Date: 10-06-2024
 //***************************************************************************
 /*
  keyestudio 4wd BT Car
@@ -17,6 +17,7 @@
 #include <Wire.h> // I2C for compass library
 
 #define DEBUG
+#define BLUETOOTH
 #define IR_RECEIVE_PIN 3 //define the pins of IR receiver as D3
 #define IR_SEND_PIN A0
 #define servoPin A3  //servo Pin
@@ -44,7 +45,9 @@ unsigned long data = 0xFF02FD; // Variable to store data
 long duration, cm, inches;
 char ble_val;// An integer variable used to store the value received by Bluetooth
 Servo servo_distance;  // create servo object to control a servo
-// SoftwareSerial bt(0,1); /* Rx,Tx for bluetooth */	
+#ifdef BLUETOOTH
+SoftwareSerial bt(0,1); /* Rx,Tx for bluetooth */	
+#endif BLUETOOTH
 QMC5883L compass; // Compass class
 
 uint8_t grid_map[5][5] = {{0,0,0,0,0},
@@ -60,6 +63,8 @@ int calibrated_North = 135;
 int calibrated_East = 225;
 int calibrated_South = 315;
 int calibrated_West = 45;
+int robot_ID = 0;
+
 
 void setup() {
   //Serial Port begin
@@ -88,7 +93,9 @@ void setup() {
 	compass.init();
 	compass.setSamplingRate(50);
 
-  // bt.begin(9600);	/* Define baud rate for software serial communication */
+  #ifdef BLUETOOTH
+  bt.begin(9600);	/* Define baud rate for software serial communication */
+  #endif BLUETOOTH
   Serial.println("Damn homie, we chilling");
   
   delay(1000);
@@ -206,6 +213,7 @@ void drive_stop(int ms_time)
   delay(ms_time);//delay in 2000ms)
 }
 
+#ifdef BLUETOOTH
 // BT24 is the name of the module
 // Function to read bluetooth
 uint32_t bluetooth_read()
@@ -233,10 +241,12 @@ void bluetooth_send()
 {
   Serial.println(data);
 }
+#endif BLUETOOTH
 
 // Check infrared and print if something is received
 void ir_receive()
 {
+  unsigned int ir_temp = 0;
     //Infrared sensor
   if (IrReceiver.decode()) 
   {
@@ -245,7 +255,24 @@ void ir_receive()
     Serial.print("IR data received: ");
     Serial.print(ir_recv_data, HEX); // Print "old" raw data in HEX
     Serial.print(' '); // Print "old" raw data
-    
+    unsigned long ir_temp = ir_recv_data >> 20; // Only grab first 4 bits
+    if (ir_temp == 0xE) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
+                        // E----- map protocol
+                        // E12345. 1 = ID, 2 = X coords, 3 = Y coords, 4 = empty, 5 = empty
+    {
+      robot_ID = (ir_recv_data >> 16) & 0xF; // Grab the second digit
+      int destination_x = (ir_recv_data >> 12) & 0xF; // Grab the third digit
+      int destination_y = (ir_recv_data >> 8 ) & 0xF; // Grab the fourth digit
+      Serial.print("Destination X: ");
+      Serial.println(destination_x);
+      Serial.print("Destination Y: ");
+      Serial.println(destination_y);
+    }
+    else
+    {
+      // Switch case
+      Serial.println(ir_recv_data);
+    }
     // Attach data to functionality/commands
     switch(ir_recv_data)
     {
@@ -331,6 +358,8 @@ uint32_t readSerial_IR()
   return data;
 }
 
+// Function to read compass
+// Returns degrees (1-360)
 int readCompass()
 {
 	int heading = compass.readHeading();
@@ -516,8 +545,37 @@ void goto_coordinates(int desired_x, int desired_y)
   Serial.println("Destination arrived.");
 }
 
+
 int incomingByte; // for incoming serial data
 void loop() {
+
+  // ir_recv_data = reverseBits(IrReceiver.decodedIRData.decodedRawData); // Decode received data and reverse it so the remote works
+  ir_recv_data = 0xE12200;
+  //ir_data = reverseBits(ir_data); // Decode received data and reverse it so the remote works
+  Serial.print("IR data received: ");
+  Serial.print(ir_recv_data, HEX); // Print "old" raw data in HEX
+  Serial.print(' '); // Print "old" raw data
+  unsigned long ir_temp = ir_recv_data >> 20; // Only grab first 4 bits
+  if (ir_temp == 0xE) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
+                      // E----- map protocol
+                      // E12345. 1 = ID, 2 = X coords, 3 = Y coords, 4 = empty, 5 = empty
+  {
+    robot_ID = (ir_recv_data >> 16) & 0xF; // Grab the second digit
+    int destination_x = (ir_recv_data >> 12) & 0xF; // Grab the third digit
+    int destination_y = (ir_recv_data >> 8 ) & 0xF; // Grab the fourth digit
+    Serial.print("ID: ");
+    Serial.print(robot_ID);
+    Serial.print("\t Destination X: ");
+    Serial.print(destination_x);
+    Serial.print("\t Destination Y: ");
+    Serial.println(destination_y);
+  }
+  else
+  {
+    // Switch case
+    Serial.println(ir_recv_data);
+  }
+  delay(250);
   // Read Bluetooth
   // readSerial();
   // ir_receive();
@@ -649,6 +707,7 @@ void loop() {
   // delay(125);
   // // digitalWrite(9, LOW); // turn the LED off by making the voltage LOW
 }
+
 // void find_current_location()
 // {
 //   for(int row = 0; row < numRows; row++)
