@@ -39,17 +39,29 @@ int pos; //the angle variable of servo
 int pulsewidth; //pulse width variable of servo
 int distance;
 int compass_data; // Variable to store compass data
-unsigned long ir_recv_data; // Variable to store received infrared data
-unsigned long ir_send_data; // Variable to store received infrared data
 unsigned long data = 0xFF02FD; // Variable to store data
 long duration, cm, inches;
 char ble_val;// An integer variable used to store the value received by Bluetooth
 Servo servo_distance;  // create servo object to control a servo
+
+// IR
+unsigned long ir_recv_data; // Variable to store received infrared data
+unsigned long ir_send_data; // Variable to store received infrared data
+unsigned char ir_data[6] = {0,0,0,0,0,0};
+
+// Bluetooth
 #ifdef BLUETOOTH
 SoftwareSerial bt(0,1); /* Rx,Tx for bluetooth */	
 #endif BLUETOOTH
-QMC5883L compass; // Compass class
 
+// Compass
+QMC5883L compass; // Compass class
+int calibrated_North = 135;
+int calibrated_East = 225;
+int calibrated_South = 315;
+int calibrated_West = 45;
+
+// Robot mapping
 uint8_t grid_map[5][5] = {{0,0,0,0,0},
                           {0,0,0,0,0},
                           {0,0,1,0,0},
@@ -59,11 +71,9 @@ const int numRows = 5;
 const int numCols = 5;
 int position_y = 2;
 int position_x = 2; // x,y
-int calibrated_North = 135;
-int calibrated_East = 225;
-int calibrated_South = 315;
-int calibrated_West = 45;
-int robot_ID = 0;
+unsigned int robot_ID = 0;
+unsigned int stored_ids[5] = {0,0,0,0,0};
+unsigned int MAC_ID = 0; // Generate MAC_ID, an ID that's randomly generated and won't change after
 
 
 void setup() {
@@ -79,7 +89,7 @@ void setup() {
   //procedure(0); //set the angle of servo to 0 degree
   servo_distance.attach(A3);  // attaches the servo on pin A3 to the servo object
   servo_distance.write(110);  // Start distance sensor servo at exactly in the middle, because of offset
-  // IrReceiver.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
+  IrReceiver.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
   // irsend.begin(IR_SEND_PIN);
 
   // Motor
@@ -93,10 +103,16 @@ void setup() {
 	compass.init();
 	compass.setSamplingRate(50);
 
+  // Bluetooth
   #ifdef BLUETOOTH
   bt.begin(9600);	/* Define baud rate for software serial communication */
   #endif BLUETOOTH
   Serial.println("Damn homie, we chilling");
+  
+  // Mapping stuff
+  // unsigned int MAC_ID = random(1, 254); // Generate MAC_ID, an ID that won't change
+  randomSeed(analogRead(0));
+  MAC_ID = random(1, 254); // Generate MAC_ID, an ID that won't change
   
   delay(1000);
   // drive_10cm();
@@ -258,15 +274,19 @@ void ir_receive()
     unsigned long ir_temp = ir_recv_data >> 20; // Only grab first 4 bits
     if (ir_temp == 0xE) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
                         // E----- map protocol
-                        // E12345. 1 = ID, 2 = X coords, 3 = Y coords, 4 = empty, 5 = empty
+                        // E12345. 1 & 2 = ID, 3 = X coords, 4 = Y coords, 5 = empty
     {
-      robot_ID = (ir_recv_data >> 16) & 0xF; // Grab the second digit
-      int destination_x = (ir_recv_data >> 12) & 0xF; // Grab the third digit
-      int destination_y = (ir_recv_data >> 8 ) & 0xF; // Grab the fourth digit
+      robot_ID = (ir_recv_data >> 12) & 0xFF; // Grab the second digit
+      int destination_x = (ir_recv_data >> 8) & 0xF; // Grab the third digit
+      int destination_y = (ir_recv_data >> 4 ) & 0xF; // Grab the fourth digit
       Serial.print("Destination X: ");
       Serial.println(destination_x);
       Serial.print("Destination Y: ");
       Serial.println(destination_y);
+
+      // Send D12345, 1 = ID, 2&3 = MAC_ID, D = acknowledge
+      long senddata = (0xD << 20) + (robot_ID << 16) + (MAC_ID << 8);
+      ir_senddata(senddata);
     }
     else
     {
@@ -545,37 +565,60 @@ void goto_coordinates(int desired_x, int desired_y)
   Serial.println("Destination arrived.");
 }
 
+// Function for start of program, checks if leader exists, else assign one.
+void assign_id()
+{
+  unsigned long startTime = millis();
+    while (millis() - startTime < 2000) // 2 second timer
+    { 
+    // if (bluetoothSerial.available()) 
+    // {
+
+    // }
+  }
+}
 
 int incomingByte; // for incoming serial data
 void loop() {
-
+  ir_receive();
   // ir_recv_data = reverseBits(IrReceiver.decodedIRData.decodedRawData); // Decode received data and reverse it so the remote works
-  ir_recv_data = 0xE12200;
+  // ir_recv_data = 0xE12200;
   //ir_data = reverseBits(ir_data); // Decode received data and reverse it so the remote works
   Serial.print("IR data received: ");
   Serial.print(ir_recv_data, HEX); // Print "old" raw data in HEX
   Serial.print(' '); // Print "old" raw data
   unsigned long ir_temp = ir_recv_data >> 20; // Only grab first 4 bits
-  if (ir_temp == 0xE) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
+  if ((ir_temp & 0xF) == 0xF) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
                       // E----- map protocol
                       // E12345. 1 = ID, 2 = X coords, 3 = Y coords, 4 = empty, 5 = empty
   {
     robot_ID = (ir_recv_data >> 16) & 0xF; // Grab the second digit
     int destination_x = (ir_recv_data >> 12) & 0xF; // Grab the third digit
     int destination_y = (ir_recv_data >> 8 ) & 0xF; // Grab the fourth digit
+    ir_data[0] = 0xD;
+    ir_data[1] = robot_ID;
+    ir_data[2] = MAC_ID >> 4;
+    ir_data[3] = MAC_ID;
+    ir_data[4] = 0;
+    ir_data[5] = 0;
+    // senddata = (0xD << 16);
     Serial.print("ID: ");
-    Serial.print(robot_ID);
-    Serial.print("\t Destination X: ");
-    Serial.print(destination_x);
-    Serial.print("\t Destination Y: ");
-    Serial.println(destination_y);
+    Serial.print(robot_ID, HEX);
+    Serial.print("\t MAC_ID: ");
+    Serial.print(MAC_ID, HEX);
+    // Serial.print("\t Destination X: ");
+    // Serial.print(destination_x);
+    // Serial.print("\t Destination Y: ");
+    // Serial.println(destination_y);
+    Serial.print(" Senddata: ");
+    Serial.println(ir_data, HEX);
   }
   else
   {
     // Switch case
     Serial.println(ir_recv_data);
   }
-  delay(250);
+  delay(1500);
   // Read Bluetooth
   // readSerial();
   // ir_receive();
@@ -697,6 +740,8 @@ void loop() {
   // Serial.println("You donno");
   // find_current_location();
   readCompass();
+  Serial.print("Amogus");
+  Serial.println(MAC_ID);
   // turn_until_degrees(90);
   // delay(1000);
 
