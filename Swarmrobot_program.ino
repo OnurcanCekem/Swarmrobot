@@ -1,7 +1,7 @@
 //
 // Author: Onurcan Cekem
-// Version: 0.4
-// Date: 10-06-2024
+// Version: 0.4.2
+// Date: 11-06-2024
 //***************************************************************************
 /*
  keyestudio 4wd BT Car
@@ -71,7 +71,7 @@ const int numRows = 5;
 const int numCols = 5;
 int position_y = 2;
 int position_x = 2; // x,y
-unsigned int robot_ID = 0;
+uint8_t robot_ID = 0;
 unsigned int stored_ids[5] = {0,0,0,0,0};
 unsigned int MAC_ID = 0; // Generate MAC_ID, an ID that's randomly generated and won't change after
 
@@ -579,6 +579,7 @@ void assign_id()
 }
 
 int incomingByte; // for incoming serial data
+uint32_t senddata = 0xD00000;
 void loop() {
   ir_receive();
   // ir_recv_data = reverseBits(IrReceiver.decodedIRData.decodedRawData); // Decode received data and reverse it so the remote works
@@ -588,30 +589,40 @@ void loop() {
   Serial.print(ir_recv_data, HEX); // Print "old" raw data in HEX
   Serial.print(' '); // Print "old" raw data
   unsigned long ir_temp = ir_recv_data >> 20; // Only grab first 4 bits
+  // robot_ID = (ir_recv_data >> 16) & 0xF; // Grab the second digit
+  robot_ID = 15;
+  senddata = 0xD00000;
+  int destination_x = (ir_recv_data >> 12) & 0xF; // Grab the third digit
+  int destination_y = (ir_recv_data >> 8 ) & 0xF; // Grab the fourth digit
+  ir_data[0] = 0xD;
+  ir_data[1] = robot_ID;
+  ir_data[2] = MAC_ID >> 4;
+  ir_data[3] = MAC_ID;
+  ir_data[4] = 0;
+  ir_data[5] = 0;
+  senddata |= (uint32_t)robot_ID << 16;
+  senddata |= (uint32_t)MAC_ID << 8;
+  Serial.print("ID: ");
+  Serial.print(robot_ID, HEX);
+  Serial.print("\t MAC_ID: ");
+  Serial.print(MAC_ID, HEX);
+  // Serial.print("\t Destination X: ");
+  // Serial.print(destination_x);
+  // Serial.print("\t Destination Y: ");
+  // Serial.println(destination_y);
+  Serial.print(" Senddata: "); // Senddata is D12345, 1 = ID, 2&3 = MAC_ID
+  // Serial.println(senddata, BIN);
+  for (int i = 23; i >= 0; i--) {
+    Serial.print(bitRead(senddata, i));
+  }
+  Serial.println("");
+  Serial.println(senddata, HEX);
+  // Serial.println(ir_data, HEX);
   if ((ir_temp & 0xF) == 0xF) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
                       // E----- map protocol
                       // E12345. 1 = ID, 2 = X coords, 3 = Y coords, 4 = empty, 5 = empty
   {
-    robot_ID = (ir_recv_data >> 16) & 0xF; // Grab the second digit
-    int destination_x = (ir_recv_data >> 12) & 0xF; // Grab the third digit
-    int destination_y = (ir_recv_data >> 8 ) & 0xF; // Grab the fourth digit
-    ir_data[0] = 0xD;
-    ir_data[1] = robot_ID;
-    ir_data[2] = MAC_ID >> 4;
-    ir_data[3] = MAC_ID;
-    ir_data[4] = 0;
-    ir_data[5] = 0;
-    // senddata = (0xD << 16);
-    Serial.print("ID: ");
-    Serial.print(robot_ID, HEX);
-    Serial.print("\t MAC_ID: ");
-    Serial.print(MAC_ID, HEX);
-    // Serial.print("\t Destination X: ");
-    // Serial.print(destination_x);
-    // Serial.print("\t Destination Y: ");
-    // Serial.println(destination_y);
-    Serial.print(" Senddata: ");
-    Serial.println(ir_data, HEX);
+
   }
   else
   {
@@ -739,9 +750,9 @@ void loop() {
   }
   // Serial.println("You donno");
   // find_current_location();
-  readCompass();
-  Serial.print("Amogus");
-  Serial.println(MAC_ID);
+  // readCompass();
+  // Serial.print("Amogus");
+  // Serial.println(MAC_ID);
   // turn_until_degrees(90);
   // delay(1000);
 
