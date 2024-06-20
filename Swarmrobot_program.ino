@@ -1,7 +1,7 @@
 //
 // Author: Onurcan Cekem
-// Version: 0.4.2
-// Date: 11-06-2024
+// Version: 0.5
+// Date: 20-06-2024
 //***************************************************************************
 /*
  keyestudio 4wd BT Car
@@ -17,7 +17,7 @@
 #include <Wire.h> // I2C for compass library
 
 #define DEBUG
-#define BLUETOOTH
+// #define BLUETOOTH
 #define IR_RECEIVE_PIN 3 //define the pins of IR receiver as D3
 #define IR_SEND_PIN A0
 #define servoPin A3  //servo Pin
@@ -27,27 +27,28 @@
 #define MR_PWM 6   //define the PWM control pins of group A motor
 #define LED_PIN 9 //define the pin of LED as pin 9
 #define DECODE_NEC
-//#define IR_SEND_PIN 3
 
 // Pins
 int trigPin = 12;    // Ultrasonic Trigger
 int echoPin = 13;    // Ultrasonic Echo
 IRsend irsend; // IRremote class
+IRrecv irrecv(IR_SEND_PIN);
 
 // Variables
 int pos; //the angle variable of servo
 int pulsewidth; //pulse width variable of servo
 int distance;
 int compass_data; // Variable to store compass data
-unsigned long data = 0xFF02FD; // Variable to store data
+unsigned long data = 0xFF02FD; // Variable to store Serial.available data
 long duration, cm, inches;
 char ble_val;// An integer variable used to store the value received by Bluetooth
+bool leader = 0; // A variable to keep track whether this robot is leader/slave (0 = slave, 1 = leader)
 Servo servo_distance;  // create servo object to control a servo
 
 // IR
 unsigned long ir_recv_data; // Variable to store received infrared data
 unsigned long ir_send_data; // Variable to store received infrared data
-unsigned char ir_data[6] = {0,0,0,0,0,0};
+uint32_t senddata = 0xD00000;
 
 // Bluetooth
 #ifdef BLUETOOTH
@@ -79,18 +80,24 @@ unsigned int MAC_ID = 0; // Generate MAC_ID, an ID that's randomly generated and
 void setup() {
   //Serial Port begin
   Serial.begin (9600);
-  //Define inputs and outputs
+
+    // IR receiver
+  servo_distance.attach(A3);  // attaches the servo on pin A3 to the servo object
+  // servo_distance.write(110);  // Start distance sensor servo at exactly in the middle, because of offset
+  // IrReceiver.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
+  irrecv.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
+  // IrReceiver.disableIRIn(); IrReceiver.enableIRIn();
+
+  // IR sender
+  // irsend.begin(IR_SEND_PIN); // Call this function to send whenever I'm sending
+
+  // HC-SR04 distance sensor
   pinMode(servoPin, OUTPUT);  //set the pins of servo to output
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
   pinMode(LED_PIN,OUTPUT);//set pin 9 of LED to OUTPUT
-
-  // IR receiver
   //procedure(0); //set the angle of servo to 0 degree
-  servo_distance.attach(A3);  // attaches the servo on pin A3 to the servo object
-  servo_distance.write(110);  // Start distance sensor servo at exactly in the middle, because of offset
-  IrReceiver.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
-  // irsend.begin(IR_SEND_PIN);
+
 
   // Motor
   pinMode(ML_Ctrl, OUTPUT);//set direction control pins of group B motor to output
@@ -115,7 +122,7 @@ void setup() {
   MAC_ID = random(1, 254); // Generate MAC_ID, an ID that won't change
   
   delay(1000);
-  // drive_10cm();
+  phase_0(); // Start program to determine leader
 }
 
 // Function for distance sensor HC-SR04 to measure distance
@@ -262,15 +269,17 @@ void bluetooth_send()
 // Check infrared and print if something is received
 void ir_receive()
 {
-  unsigned int ir_temp = 0;
+  // irrecv.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
     //Infrared sensor
-  if (IrReceiver.decode()) 
+  if (irrecv.decode()) 
   {
-    ir_recv_data = reverseBits(IrReceiver.decodedIRData.decodedRawData); // Decode received data and reverse it so the remote works
+    ir_recv_data = reverseBits(irrecv.decodedIRData.decodedRawData); // Decode received data and reverse it so the remote works
     //ir_data = reverseBits(ir_data); // Decode received data and reverse it so the remote works
+    #ifdef DEBUG
     Serial.print("IR data received: ");
     Serial.print(ir_recv_data, HEX); // Print "old" raw data in HEX
     Serial.print(' '); // Print "old" raw data
+    #endif
     unsigned long ir_temp = ir_recv_data >> 20; // Only grab first 4 bits
     if (ir_temp == 0xE) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
                         // E----- map protocol
@@ -290,8 +299,9 @@ void ir_receive()
     }
     else
     {
-      // Switch case
+      #ifdef DEBUG
       Serial.println(ir_recv_data);
+      #endif
     }
     // Attach data to functionality/commands
     switch(ir_recv_data)
@@ -321,9 +331,8 @@ void ir_receive()
         Serial.print("3");
         break;
     }
-
     Serial.println();
-    IrReceiver.resume(); // Enable receiving of the next value
+    irrecv.resume(); // Enable receiving of the next value
     //IrReceiver.printIRResultShort(&Serial); // Print complete received data in one line
     //IrReceiver.printIRSendUsage(&Serial);   // Print the statement required to send this data
 
@@ -335,6 +344,7 @@ void ir_receive()
 // Function to send data through IR.
 void ir_senddata(unsigned long data)
 {
+  irsend.begin(IR_SEND_PIN); // Enable sending IR.
   // IrReceiver.stop(); // Stop receiving IR, else sent IR echoes back to receiver. <-- Doesn't work
   irsend.sendNECMSB(data, 32);  // Replace with your own unique code
   
@@ -444,16 +454,16 @@ void drive_10cm()
   current_distance = starting_distance;
   Serial.print("Starting 10cm. Distance: ");
   Serial.println(starting_distance);
-  delay(1000);
+  delay(500);
   while (starting_distance - current_distance < 10)
   {
     // Serial.println(current_distance);
     
     // Check if nothing is in front of car
     current_distance = measure_distance(trigPin, echoPin);
-    if(current_distance < 5)
+    if(current_distance <= 10)
     {
-      Serial.println("BREAK, BELOW 5 CM");
+      Serial.println("BREAK, BELOW 10 CM");
       break;
     }
     else drive_forward(5); // Else drive forward
@@ -566,42 +576,75 @@ void goto_coordinates(int desired_x, int desired_y)
 }
 
 // Function for start of program, checks if leader exists, else assign one.
-void assign_id()
+void phase_0()
 {
   unsigned long startTime = millis();
-    while (millis() - startTime < 2000) // 2 second timer
-    { 
-    // if (bluetoothSerial.available()) 
-    // {
-
-    // }
+  while (millis() - startTime < 1000) // 5 second timer
+  { 
+    ir_receive();
+    if(ir_recv_data == 0xDFFFFF) 
+    {
+      // If leader broadcast is found
+      Serial.println("Leader is found, I'm a slave now");
+      leader = 0;
+      break;
+    }
+    leader = 1;
+    delay(25);
   }
-}
+  // No leader is found, this robot becomes leader and starts broadcasting
+  if (leader == 1)
+  {
+    Serial.print("I'm a leader ");
+    senddata = 0xDFFFFF;
+    Serial.print("LEADER Sending data: ");
+    Serial.println(senddata, HEX);
+    ir_receive();
 
-int incomingByte; // for incoming serial data
-uint32_t senddata = 0xD00000;
-void loop() {
+    ir_senddata(senddata);
+    if ((ir_recv_data >> 20) == 0xD)
+    {
+      uint8_t temp_ID = 0xFF;
+      temp_ID &= (ir_recv_data >> 8); // --XX--
+      Serial.print("Slave found on ID: ");
+      Serial.println(temp_ID, HEX);
+
+    }
+    return NULL; // Break out of function
+  }
+
+  
+  // leader is found, this robot is a slave and starts handshaking
+  Serial.print("I'm a slave ");
+  senddata = 0xD00000;
+  senddata |= (uint32_t)MAC_ID << 8; // --XX--
+  ir_senddata(senddata);
+  Serial.print("SLAVE Sending data: ");
+  Serial.println(senddata, HEX);
+
+
+
   ir_receive();
-  // ir_recv_data = reverseBits(IrReceiver.decodedIRData.decodedRawData); // Decode received data and reverse it so the remote works
+  ir_recv_data = reverseBits(IrReceiver.decodedIRData.decodedRawData); // Decode received data and reverse it so the remote works
   // ir_recv_data = 0xE12200;
   //ir_data = reverseBits(ir_data); // Decode received data and reverse it so the remote works
   Serial.print("IR data received: ");
   Serial.print(ir_recv_data, HEX); // Print "old" raw data in HEX
   Serial.print(' '); // Print "old" raw data
   unsigned long ir_temp = ir_recv_data >> 20; // Only grab first 4 bits
-  // robot_ID = (ir_recv_data >> 16) & 0xF; // Grab the second digit
-  robot_ID = 15;
+  robot_ID = (ir_recv_data >> 16) & 0xF; // -X---- Grab the second digit
+  // robot_ID = 15;
   senddata = 0xD00000;
-  int destination_x = (ir_recv_data >> 12) & 0xF; // Grab the third digit
-  int destination_y = (ir_recv_data >> 8 ) & 0xF; // Grab the fourth digit
-  ir_data[0] = 0xD;
-  ir_data[1] = robot_ID;
-  ir_data[2] = MAC_ID >> 4;
-  ir_data[3] = MAC_ID;
-  ir_data[4] = 0;
-  ir_data[5] = 0;
-  senddata |= (uint32_t)robot_ID << 16;
-  senddata |= (uint32_t)MAC_ID << 8;
+  int destination_x = (ir_recv_data >> 12) & 0xF; // --X---Grab the third digit
+  int destination_y = (ir_recv_data >> 8 ) & 0xF; // ---X--Grab the fourth digit
+  // ir_data[0] = 0xD;
+  // ir_data[1] = robot_ID;
+  // ir_data[2] = MAC_ID >> 4;
+  // ir_data[3] = MAC_ID;
+  // ir_data[4] = 0;
+  // ir_data[5] = 0;
+  senddata |= (uint32_t)robot_ID << 16; // -X----
+  senddata |= (uint32_t)MAC_ID << 8; // --XX--
   Serial.print("ID: ");
   Serial.print(robot_ID, HEX);
   Serial.print("\t MAC_ID: ");
@@ -612,24 +655,54 @@ void loop() {
   // Serial.println(destination_y);
   Serial.print(" Senddata: "); // Senddata is D12345, 1 = ID, 2&3 = MAC_ID
   // Serial.println(senddata, BIN);
-  for (int i = 23; i >= 0; i--) {
-    Serial.print(bitRead(senddata, i));
-  }
+  
+  // for (int i = 23; i >= 0; i--) { // Print all of senddata's bits
+  //   Serial.print(bitRead(senddata, i));
+  // }
   Serial.println("");
-  Serial.println(senddata, HEX);
-  // Serial.println(ir_data, HEX);
-  if ((ir_temp & 0xF) == 0xF) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
-                      // E----- map protocol
-                      // E12345. 1 = ID, 2 = X coords, 3 = Y coords, 4 = empty, 5 = empty
+  Serial.print(senddata, HEX);
+  Serial.print("\t ");
+  Serial.print("0 - D ");
+  Serial.print("\t ");
+  Serial.print(" 1 - ID ");
+  Serial.print("\t ");
+  Serial.print(" 2+3 - MAC_ID ");
+  if ((ir_temp & 0xF) == 0xE) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
+                    // E----- map protocol
+                    // E12345. 1 = ID, 2 = X coords, 3 = Y coords, 4 = empty, 5 = empty
   {
 
   }
   else
   {
     // Switch case
-    Serial.println(ir_recv_data);
+    // Serial.println(ir_recv_data);
   }
-  delay(1500);
+}
+
+int incomingByte; // for incoming serial data
+// void loop()
+// {
+//   ir_receive();
+// }
+void loop() {
+  // measure_distance(trigPin, echoPin);
+  // Serial.println(ir_data, HEX);
+  if(incomingByte == 1)
+  {
+    // Serial.println("Let's go");
+    phase_0();
+    delay(1000);
+    // print_map();
+  }
+  if(incomingByte == 2)
+  {
+    // Serial.println("Let's go");
+    ir_receive();
+    delay(1000);
+    // print_map();
+  }
+
   // Read Bluetooth
   // readSerial();
   // ir_receive();
