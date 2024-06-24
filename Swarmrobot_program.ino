@@ -1,7 +1,7 @@
 //
 // Author: Onurcan Cekem
-// Version: 0.5
-// Date: 20-06-2024
+// Version: 0.6
+// Date: 24-06-2024
 //***************************************************************************
 /*
  keyestudio 4wd BT Car
@@ -48,7 +48,9 @@ Servo servo_distance;  // create servo object to control a servo
 // IR
 unsigned long ir_recv_data; // Variable to store received infrared data
 unsigned long ir_send_data; // Variable to store received infrared data
-uint32_t senddata = 0xD00000;
+uint32_t senddata = 0xFFFFFF;
+uint8_t received_ID = 0; // Variable to store received slave ID
+unsigned long acknowledge_protocol = 0xDFFFF0; // Variable to determine protocol for own acknowledgement
 
 // Bluetooth
 #ifdef BLUETOOTH
@@ -72,8 +74,8 @@ const int numRows = 5;
 const int numCols = 5;
 int position_y = 2;
 int position_x = 2; // x,y
-uint8_t robot_ID = 0;
-unsigned int stored_ids[5] = {0,0,0,0,0};
+uint8_t robot_ID = 0; // Variable to store own robot ID
+unsigned int stored_id[5] = {0,0,0,0,0}; // Used for leader to keep track of slave ID's
 unsigned int MAC_ID = 0; // Generate MAC_ID, an ID that's randomly generated and won't change after
 
 
@@ -579,7 +581,7 @@ void goto_coordinates(int desired_x, int desired_y)
 void phase_0()
 {
   unsigned long startTime = millis();
-  while (millis() - startTime < 1000) // 5 second timer
+  while (millis() - startTime < 3000) // 5 second timer
   { 
     ir_receive();
     if(ir_recv_data == 0xDFFFFF) 
@@ -592,36 +594,86 @@ void phase_0()
     leader = 1;
     delay(25);
   }
+
   // No leader is found, this robot becomes leader and starts broadcasting
   if (leader == 1)
   {
     Serial.print("I'm a leader ");
-    senddata = 0xDFFFFF;
-    Serial.print("LEADER Sending data: ");
-    Serial.println(senddata, HEX);
-    ir_receive();
 
-    ir_senddata(senddata);
-    if ((ir_recv_data >> 20) == 0xD)
+    for(;;) // Infinite loop until "OK is pressed"
     {
-      uint8_t temp_ID = 0xFF;
-      temp_ID &= (ir_recv_data >> 8); // --XX--
-      Serial.print("Slave found on ID: ");
-      Serial.println(temp_ID, HEX);
+      ir_receive();
+      delay(20);
+      // Serial.println(senddata, HEX);
+      Serial.print("ir recv: ");
+      Serial.println(ir_recv_data, HEX);
 
-    }
+      if ((ir_recv_data >> 20) == 0xD) // If a slave is found
+      {
+        received_ID = 0xFF; // Determine ID
+        received_ID &= (ir_recv_data >> 8); // grab ID --XX--
+        Serial.print("Slave found on ID (hex): ");
+        Serial.println(received_ID, HEX);
+        store_id(received_ID);
+
+        senddata &= (received_ID << 8); // --XX--
+        senddata &= 0xFFFFF0; // Protocol for acknowledge, it has to end with F0
+
+        startTime = millis(); // refresh timer
+        while (millis() - startTime < 3000) // broadcast for 3 seconds
+        { 
+          Serial.print("sending acknowledge:");
+          Serial.println(senddata, HEX);
+          ir_senddata(senddata); // Broadcast acknowledge
+          delay(100);
+        }
+      }
+
+      else if (ir_recv_data == 0xFF02FD) // "OK" from remote
+      {
+        Serial.print("OK message received, continue");
+        break; // Exit out of program and go to next phase
+      }
+
+      else
+      {
+        Serial.print("LEADER Sending data: ");
+        senddata = 0xDFFFFF; // Set to broadcast protocol
+        ir_senddata(senddata); // Broadcast data
+      }
+      delay(200);
+    } // End of for-loop
     return NULL; // Break out of function
-  }
+  } // End of leader
 
   
   // leader is found, this robot is a slave and starts handshaking
   Serial.print("I'm a slave ");
-  senddata = 0xD00000;
-  senddata |= (uint32_t)MAC_ID << 8; // --XX--
-  ir_senddata(senddata);
-  Serial.print("SLAVE Sending data: ");
-  Serial.println(senddata, HEX);
+  senddata = 0xD00000; // Determine protocol
+  senddata |= (uint32_t)MAC_ID << 8; // --XX-- 
+  acknowledge_protocol &= (MAC_ID << 8); // Acknowledge is 0xDFFFF0, turn into 0xDF23F0 (2 and 3 are MAC_ID)
+  for(;;)
+  {
+    Serial.print("Acknowledge protocol: ");
+    Serial.println(acknowledge_protocol, HEX);
 
+    ir_receive(); // Read for acknowledge from leader
+
+    if (ir_recv_data == acknowledge_protocol) // Acknowledge from leader
+    {
+      Serial.print("Acknowledged ");
+      Serial.println(acknowledge_protocol);
+      break; // Handshaking complete, exit
+    }
+
+    delay(20);
+    Serial.print("SLAVE Sending data: ");
+    Serial.println(senddata, HEX);
+    ir_senddata(senddata); // first step of handshaking Send slave ID 
+    delay(200);
+
+  } // End of for-loop
+  return NULL;
 
 
   ir_receive();
@@ -667,10 +719,14 @@ void phase_0()
   Serial.print(" 1 - ID ");
   Serial.print("\t ");
   Serial.print(" 2+3 - MAC_ID ");
+  if ((ir_recv_data >> 20)  == 0xD) // D----- handshaking protocol
+  {                 // D12345. 1 = Robot_ID, 2 = MAC_ID, 3 = MAC_ID, 4 = empty, 5 = empty
+    
+  }
   if ((ir_temp & 0xF) == 0xE) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
-                    // E----- map protocol
+  {                 // E----- map protocol
                     // E12345. 1 = ID, 2 = X coords, 3 = Y coords, 4 = empty, 5 = empty
-  {
+  
 
   }
   else
@@ -678,6 +734,21 @@ void phase_0()
     // Switch case
     // Serial.println(ir_recv_data);
   }
+}
+
+void phase_1()
+{
+
+}
+
+void phase_2()
+{
+
+}
+
+void phase_3()
+{
+
 }
 
 int incomingByte; // for incoming serial data
@@ -835,6 +906,32 @@ void loop() {
   // digitalWrite(9, HIGH); // turn the LED on (HIGH is the voltage level)
   // delay(125);
   // // digitalWrite(9, LOW); // turn the LED off by making the voltage LOW
+}
+
+// Find the first possible empty ID and store it
+void store_id(int received_ID)
+{
+  Serial.print(" Current list of ID's: ");
+  for(int i = 0; i < 5; i++)
+  {
+    if(stored_id[i] == received_ID) // If duplicate, don't store it
+    {
+      Serial.print(stored_id[i]);
+      break;
+    } 
+    else if(stored_id[i] == 0) // If new, store it
+    {
+      stored_id[i] = received_ID;
+      Serial.print(stored_id[i]);
+      break;
+    }
+    else
+    {
+    Serial.print(stored_id[i]);
+    Serial.print(" ");
+    }
+  }
+  Serial.println(" ");
 }
 
 // void find_current_location()
