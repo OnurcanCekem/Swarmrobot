@@ -1,7 +1,7 @@
 //
 // Author: Onurcan Cekem
-// Version: 0.6
-// Date: 24-06-2024
+// Version: 0.6.1
+// Date: 25-06-2024
 //***************************************************************************
 /*
  keyestudio 4wd BT Car
@@ -348,7 +348,7 @@ void ir_senddata(unsigned long data)
 {
   irsend.begin(IR_SEND_PIN); // Enable sending IR.
   // IrReceiver.stop(); // Stop receiving IR, else sent IR echoes back to receiver. <-- Doesn't work
-  irsend.sendNECMSB(data, 32);  // Replace with your own unique code
+  irsend.sendNECMSB(data, 32);  // Send protocol NEC (same as remote)
   
   #ifdef DEBUG // Print out sent data in serial when debug is active
   Serial.print("Data sent: ");
@@ -356,7 +356,7 @@ void ir_senddata(unsigned long data)
   // Serial.print("\t Reversed: ");
   // Serial.println(reverseBits(data), HEX);
   #endif
-  delay(15); // Force delay, without it IR echoes to receiver
+  delay(15); // Force delay, without sent signal echoes to receiver
   IrReceiver.resume(); // Resume receiving IR, else sent IR echoes back to receiver.
   return NULL;
 }
@@ -598,15 +598,18 @@ void phase_0()
   // No leader is found, this robot becomes leader and starts broadcasting
   if (leader == 1)
   {
-    Serial.print("I'm a leader ");
+    Serial.println("I'm a leader ");
+    Serial.print("LEADER broadcasting: ");
+    Serial.print(senddata, HEX);
+    Serial.print(" ");
 
-    for(;;) // Infinite loop until "OK is pressed"
+    for(;;) // Infinite loop by leader until "OK is pressed"
     {
       ir_receive();
       delay(20);
       // Serial.println(senddata, HEX);
-      Serial.print("ir recv: ");
-      Serial.println(ir_recv_data, HEX);
+      // Serial.print("ir recv: ");
+      // Serial.println(ir_recv_data, HEX);
 
       if ((ir_recv_data >> 20) == 0xD) // If a slave is found
       {
@@ -618,15 +621,17 @@ void phase_0()
 
         senddata &= (received_ID << 8); // --XX--
         senddata &= 0xFFFFF0; // Protocol for acknowledge, it has to end with F0
-
+        delay(1000);
         startTime = millis(); // refresh timer
+        Serial.print("sending acknowledge:");
+        Serial.println(senddata, HEX);
         while (millis() - startTime < 3000) // broadcast for 3 seconds
         { 
-          Serial.print("sending acknowledge:");
-          Serial.println(senddata, HEX);
           ir_senddata(senddata); // Broadcast acknowledge
           delay(100);
         }
+        ir_recv_data = 0;
+        Serial.print("Back to broadcasting ");
       }
 
       else if (ir_recv_data == 0xFF02FD) // "OK" from remote
@@ -637,7 +642,6 @@ void phase_0()
 
       else
       {
-        Serial.print("LEADER Sending data: ");
         senddata = 0xDFFFFF; // Set to broadcast protocol
         ir_senddata(senddata); // Broadcast data
       }
@@ -646,29 +650,32 @@ void phase_0()
     return NULL; // Break out of function
   } // End of leader
 
-  
+  Serial.println("I'm a slave ");
   // leader is found, this robot is a slave and starts handshaking
-  Serial.print("I'm a slave ");
   senddata = 0xD00000; // Determine protocol
   senddata |= (uint32_t)MAC_ID << 8; // --XX-- 
   acknowledge_protocol &= (MAC_ID << 8); // Acknowledge is 0xDFFFF0, turn into 0xDF23F0 (2 and 3 are MAC_ID)
-  for(;;)
+  Serial.print("Acknowledge protocol: ");
+  Serial.println(acknowledge_protocol, HEX);
+  delay(1000);
+
+  for(;;) // Infinite loop as slave
   {
-    Serial.print("Acknowledge protocol: ");
-    Serial.println(acknowledge_protocol, HEX);
 
     ir_receive(); // Read for acknowledge from leader
 
     if (ir_recv_data == acknowledge_protocol) // Acknowledge from leader
     {
-      Serial.print("Acknowledged ");
-      Serial.println(acknowledge_protocol);
+      Serial.print("Acknowledged (HEX) ");
+      Serial.println(MAC_ID, HEX);
+      Serial.print("ID (DEC) ");
+      Serial.println(MAC_ID, DEC);
       break; // Handshaking complete, exit
     }
 
     delay(20);
-    Serial.print("SLAVE Sending data: ");
-    Serial.println(senddata, HEX);
+    // Serial.print("SLAVE Sending data: ");
+    // Serial.println(senddata, HEX);
     ir_senddata(senddata); // first step of handshaking Send slave ID 
     delay(200);
 
@@ -751,6 +758,32 @@ void phase_3()
 
 }
 
+// Find the first possible empty ID and store it
+void store_id(int received_ID)
+{
+  Serial.print(" Current list of ID's: ");
+  for(int i = 0; i < 5; i++)
+  {
+    if(stored_id[i] == received_ID) // If duplicate, don't store it
+    {
+      Serial.print(stored_id[i]);
+      break;
+    } 
+    else if(stored_id[i] == 0) // If new, store it
+    {
+      stored_id[i] = received_ID;
+      Serial.print(stored_id[i]);
+      break;
+    }
+    else
+    {
+    Serial.print(stored_id[i]);
+    Serial.print(" ");
+    }
+  }
+  Serial.println(" ");
+}
+
 int incomingByte; // for incoming serial data
 // void loop()
 // {
@@ -773,25 +806,16 @@ void loop() {
     delay(1000);
     // print_map();
   }
-
-  // Read Bluetooth
-  // readSerial();
-  // ir_receive();
-  // data = bluetooth_read(); 
-  // bluetooth_send();
-  //irsend.sendNECMSB(reverseBits(data), 32);  // Send reversed data
-  // irrecv.enableIRIn();
   
-  // Bluetooth testing
-  // if (bt.available())	/* If data is available on serial port */
-  // {
-  //   // Send the data to the Bluetooth serial
-  //   bt.write(data);
-  //   // Optionally, print the data to the Serial Monitor
-  //   // Serial.print("Sent via Bluetooth: ");
-  //   // Serial.println(data);
-  //   Serial.write(bt.read());	/* Print character received on to the serial monitor */
-  // }
+  if(incomingByte == 3)
+  {
+    // Serial.println("Let's go");
+    store_id(0);
+    delay(5000);
+    // print_map();
+  }
+
+
 
   // Distance sensor
   // distance = measure_distance(trigPin, echoPin);
@@ -908,31 +932,7 @@ void loop() {
   // // digitalWrite(9, LOW); // turn the LED off by making the voltage LOW
 }
 
-// Find the first possible empty ID and store it
-void store_id(int received_ID)
-{
-  Serial.print(" Current list of ID's: ");
-  for(int i = 0; i < 5; i++)
-  {
-    if(stored_id[i] == received_ID) // If duplicate, don't store it
-    {
-      Serial.print(stored_id[i]);
-      break;
-    } 
-    else if(stored_id[i] == 0) // If new, store it
-    {
-      stored_id[i] = received_ID;
-      Serial.print(stored_id[i]);
-      break;
-    }
-    else
-    {
-    Serial.print(stored_id[i]);
-    Serial.print(" ");
-    }
-  }
-  Serial.println(" ");
-}
+
 
 // void find_current_location()
 // {
@@ -954,4 +954,22 @@ void store_id(int received_ID)
 //     }
 //   }
 // }
+  // Read Bluetooth
+  // readSerial();
+  // ir_receive();
+  // data = bluetooth_read(); 
+  // bluetooth_send();
+  //irsend.sendNECMSB(reverseBits(data), 32);  // Send reversed data
+  // irrecv.enableIRIn();
+  
+  // Bluetooth testing
+  // if (bt.available())	/* If data is available on serial port */
+  // {
+  //   // Send the data to the Bluetooth serial
+  //   bt.write(data);
+  //   // Optionally, print the data to the Serial Monitor
+  //   // Serial.print("Sent via Bluetooth: ");
+  //   // Serial.println(data);
+  //   Serial.write(bt.read());	/* Print character received on to the serial monitor */
+  // }
 //***************************************************************************
