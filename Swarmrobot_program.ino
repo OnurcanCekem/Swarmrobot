@@ -1,7 +1,7 @@
 //
 // Author: Onurcan Cekem
-// Version: 0.6.1
-// Date: 25-06-2024
+// Version: 0.6.2
+// Date: 26-06-2024
 //***************************************************************************
 /*
  keyestudio 4wd BT Car
@@ -682,7 +682,7 @@ void phase_0()
   } // End of for-loop
   return NULL;
 
-
+  // The code below is unused. It's purpose was to test the code above.
   ir_receive();
   ir_recv_data = reverseBits(IrReceiver.decodedIRData.decodedRawData); // Decode received data and reverse it so the remote works
   // ir_recv_data = 0xE12200;
