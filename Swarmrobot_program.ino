@@ -1,6 +1,6 @@
 //
 // Author: Onurcan Cekem
-// Version: 0.6.2
+// Version: 0.7
 // Date: 26-06-2024
 //***************************************************************************
 /*
@@ -351,8 +351,8 @@ void ir_senddata(unsigned long data)
   irsend.sendNECMSB(data, 32);  // Send protocol NEC (same as remote)
   
   #ifdef DEBUG // Print out sent data in serial when debug is active
-  Serial.print("Data sent: ");
-  Serial.println(data, HEX); // Convert string input to hex
+  // Serial.print("Data sent: ");
+  // Serial.println(data, HEX); // Convert string input to hex
   // Serial.print("\t Reversed: ");
   // Serial.println(reverseBits(data), HEX);
   #endif
@@ -401,10 +401,10 @@ int readCompass()
 		Serial.print(heading);
 	}
   #ifdef DEBUG
-  if (heading > 270) Serial.println("N");
-  else if (heading > 180) Serial.println("E");
-  else if (heading > 90) Serial.println("S");
-  else Serial.println("W");
+  // if (heading > 270) Serial.println("N");
+  // else if (heading > 180) Serial.println("E");
+  // else if (heading > 90) Serial.println("S");
+  // else Serial.println("W");
   #endif
   return heading;
 }
@@ -650,8 +650,8 @@ void phase_0()
     return NULL; // Break out of function
   } // End of leader
 
-  Serial.println("I'm a slave ");
   // leader is found, this robot is a slave and starts handshaking
+  Serial.println("I'm a slave ");
   senddata = 0xD00000; // Determine protocol
   senddata |= (uint32_t)MAC_ID << 8; // --XX-- 
   acknowledge_protocol &= (MAC_ID << 8); // Acknowledge is 0xDFFFF0, turn into 0xDF23F0 (2 and 3 are MAC_ID)
@@ -664,7 +664,7 @@ void phase_0()
 
     ir_receive(); // Read for acknowledge from leader
 
-    if (ir_recv_data == acknowledge_protocol) // Acknowledge from leader
+    if ((ir_recv_data == acknowledge_protocol) || (ir_recv_data == acknowledge_protocol << 8)) // Acknowledge from leader
     {
       Serial.print("Acknowledged (HEX) ");
       Serial.println(MAC_ID, HEX);
@@ -750,6 +750,71 @@ void phase_1()
 
 void phase_2()
 {
+  // Determine all orientations
+  int calibrated_NorthEast = (calibrated_North + calibrated_East) / 2;
+  int calibrated_SouthEast = (calibrated_South + calibrated_East) / 2;
+  int calibrated_SouthWest = (calibrated_South + calibrated_West) / 2;
+  int calibrated_NorthWest = (calibrated_North + calibrated_West) / 2;
+  int directions[8] = {calibrated_North, calibrated_NorthEast, 
+                       calibrated_East, calibrated_SouthEast, 
+                       calibrated_South, calibrated_SouthWest, 
+                       calibrated_West, calibrated_NorthWest};
+  int minDifference = 360; // Initialize to a large value
+  int difference = 0;
+  
+  int current_direction = readCompass(); 
+  for(int i = 0; i < 8; i++)
+  {
+    difference = abs(current_direction - directions[i]);
+    if (difference > 180) {
+      difference = 360 - difference; // Handle wrap-around case
+    }
+
+    if (difference < minDifference) {
+      minDifference = difference;
+      closestDirection = directions[i];
+    }
+
+  }
+  Serial.print("Closest direction is: ");
+  Serial.println(closestDirection);
+
+  if (current_direction )
+  {
+
+  }
+
+  return NULL;
+
+  int difference = abs(current_direction-desired_direction);
+  int left, right; // counterclockwise
+  Serial.println("Difference: ");
+  Serial.println(difference);
+  while(difference >= 4) // Keep in function until direction is achieved
+  {
+    // Calculate difference
+    left = (current_direction - desired_direction + 360) % 360; // counterclockwise
+    right = (desired_direction - current_direction + 360) % 360; // clockwise
+
+  // Serial.print("Left: ");
+  // Serial.print(left);
+  // Serial.print("\t right: ");
+  // Serial.println(right);
+
+    // Determine shortest turn direction
+    if (left <= right) // Go left
+    {
+      drive_left(5); // counterclockwise
+    }
+    else // Go right
+    {
+      drive_right(5); // clockwise
+    }
+
+    // Serial.print("current direction in while: ");
+    // Serial.println(current_direction);
+    difference = abs(current_direction-desired_direction);
+  }
 
 }
 
