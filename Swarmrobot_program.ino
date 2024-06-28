@@ -1,7 +1,7 @@
 //
 // Author: Onurcan Cekem
-// Version: 0.7
-// Date: 26-06-2024
+// Version: 0.7.1
+// Date: 28-06-2024
 //***************************************************************************
 /*
  keyestudio 4wd BT Car
@@ -83,18 +83,19 @@ void setup() {
   //Serial Port begin
   Serial.begin (9600);
 
-    // IR receiver
-  servo_distance.attach(A3);  // attaches the servo on pin A3 to the servo object
-  // servo_distance.write(110);  // Start distance sensor servo at exactly in the middle, because of offset
+  // IR receiver
   // IrReceiver.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
   irrecv.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
-  // IrReceiver.disableIRIn(); IrReceiver.enableIRIn();
 
   // IR sender
   // irsend.begin(IR_SEND_PIN); // Call this function to send whenever I'm sending
 
-  // HC-SR04 distance sensor
-  pinMode(servoPin, OUTPUT);  //set the pins of servo to output
+  // Servo  
+  // servo_distance.attach(A3);  // attaches the servo on pin A3 to the servo object
+  // servo_distance.write(110);  // Start distance sensor servo at exactly in the middle, because of offset
+  // pinMode(servoPin, OUTPUT);  //set the pins of servo to output
+
+  // HC-SR04 distance sensor  
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
   pinMode(LED_PIN,OUTPUT);//set pin 9 of LED to OUTPUT
@@ -124,7 +125,8 @@ void setup() {
   MAC_ID = random(1, 254); // Generate MAC_ID, an ID that won't change
   
   delay(1000);
-  phase_0(); // Start program to determine leader
+  phase_2();
+  // phase_0(); // Start program to determine leader
 }
 
 // Function for distance sensor HC-SR04 to measure distance
@@ -577,6 +579,20 @@ void goto_coordinates(int desired_x, int desired_y)
   Serial.println("Destination arrived.");
 }
 
+uint32_t combine_data(int hex1, int hex2, int hex3, int hex4, int hex5, int hex6)
+{
+  uint32_t data;
+  data |= (uint32_t) hex1 << 20;
+  data |= (uint32_t) hex2 << 16;
+  data |= hex3 << 12;
+  data |= hex4 << 8;
+  data |= hex5 << 4;
+  data |= hex6;
+  // Serial.print("data: ");
+  // Serial.println(data, HEX);
+  return data;
+}
+
 // Function for start of program, checks if leader exists, else assign one.
 void phase_0()
 {
@@ -750,71 +766,172 @@ void phase_1()
 
 void phase_2()
 {
+  // Leader receives coördinates from slaves and calculates shortest route
+  // if(leader == 1)
+  // {
+    for(;;) // For-loop until coordinates have been shared and a formation has been selected.
+    {
+      break;
+      // Receive coordinates
+      ir_receive();
+      ir_recv_data = 0xE1024F;
+      if((ir_recv_data >> 20) == 0xE) // If it's the receive coordinate command, E12345. 12 = ID, 34 = XY
+      {
+        Serial.print("ID: ");
+        Serial.print(ir_recv_data >> 12 & 0xFF);
+        Serial.print(" x: ");
+        Serial.print(ir_recv_data >> 8 & 0xF);
+        Serial.print("\t y: ");
+        Serial.println(ir_recv_data >> 4 & 0xF);
+        grid_map[ir_recv_data >> 4 & 0xF][ir_recv_data >> 8 & 0xF] = ir_recv_data >> 12 & 0xFF; //grid_map[y][x] = MAC_ID | Remember coordinates
+        // print_map();
+      }      
+
+      else if(ir_recv_data == 0xFF6897) // Remote 1,
+      {
+        Serial.print("1");
+        break;
+      }      
+      else if(ir_recv_data == 0xFF9867) // Remote 2,
+      {
+        Serial.print("2");
+        break;
+      }      
+      else if(ir_recv_data == 0xFFB04F) // Remote 3,
+      {
+        Serial.print("3");
+        break;
+      }
+      delay(1000);
+    } // End of for-loop on receiving coördinates from slaves
+
+      // Determine end positions based on selected form
+      // Calculate shortest route for each slave 
+      // Leader has to decide which slave receives which destination
+      
+  // }
+
+  // Slave calculates orientation with leader
+  if(leader == 0)
+  {
   // Determine all orientations
-  int calibrated_NorthEast = (calibrated_North + calibrated_East) / 2;
-  int calibrated_SouthEast = (calibrated_South + calibrated_East) / 2;
-  int calibrated_SouthWest = (calibrated_South + calibrated_West) / 2;
-  int calibrated_NorthWest = (calibrated_North + calibrated_West) / 2;
-  int directions[8] = {calibrated_North, calibrated_NorthEast, 
-                       calibrated_East, calibrated_SouthEast, 
-                       calibrated_South, calibrated_SouthWest, 
-                       calibrated_West, calibrated_NorthWest};
-  int minDifference = 360; // Initialize to a large value
-  int difference = 0;
-  
-  int current_direction = readCompass(); 
-  for(int i = 0; i < 8; i++)
-  {
-    difference = abs(current_direction - directions[i]);
-    if (difference > 180) {
-      difference = 360 - difference; // Handle wrap-around case
+    int calibrated_NorthEast = (calibrated_North + calibrated_East) / 2;
+    int calibrated_SouthEast = (calibrated_South + calibrated_East) / 2;
+    int calibrated_SouthWest = (calibrated_South + calibrated_West) / 2;
+    int calibrated_NorthWest = (calibrated_North + calibrated_West) / 2;
+    int directions[8] = {calibrated_North, calibrated_NorthEast, // Store all orientations
+                        calibrated_East, calibrated_SouthEast, 
+                        calibrated_South, calibrated_SouthWest, 
+                        calibrated_West, calibrated_NorthWest};
+    int minDifference = 360; // Initialize to a large value
+    int difference = 0;
+    int index = 0;
+    
+    int current_direction = 130;
+    // int current_direction = readCompass(); 
+    for(int i = 0; i < 8; i++) // For-loop to determine closest direction amongst the 8 orientations
+    {
+      difference = abs(current_direction - directions[i]);
+      if (difference > 180) {
+        difference = 360 - difference; // Handle wrap-around case
+      }
+
+      if (difference < minDifference) {
+        minDifference = difference;
+        index = i;
+      }
+
+    }
+    
+    // int steps = (measure_distance(trigPin, echoPin)+5) / 10; // Round up to nearest 10. 15 would round up to 20.
+    int steps = 2;
+    // Determine what happens depending on oriëntation
+    // Assuming that the leader is located at 2,2. Determine the coordinates of slave with leader.
+    switch(index)
+    {
+      case 0: // North, y+1
+        position_y = position_y + steps;
+        break;
+      case 1: // North-East, x-1, y+1
+        position_y = position_y + steps;
+        position_x = position_x - steps;
+        break;
+      case 2: // East, x-1
+        position_x = position_x - steps;
+        break;
+      case 3: // South-East, x-1, y-1
+        position_y = position_y - steps;
+        position_x = position_x - steps;
+        break;
+      case 4: // South, y-1
+        position_y = position_y - steps;
+        break;
+      case 5: // South-West, x+1, y-1
+        position_x = position_x + steps;
+        position_y = position_y - steps;
+        break;
+      case 6: // West, x+1
+        position_x = position_x + steps;
+        break;
+      case 7: // North-West, x+1, y+1
+        position_x = position_x + steps;
+        position_y = position_y + steps;
+        break;
     }
 
-    if (difference < minDifference) {
-      minDifference = difference;
-      closestDirection = directions[i];
-    }
+    Serial.print("New coordinates, X: ");
+    Serial.print(position_x);
+    Serial.print("\t Y: ");
+    Serial.println(position_y);
 
-  }
-  Serial.print("Closest direction is: ");
-  Serial.println(closestDirection);
+    Serial.print("Closest direction is: ");
+    Serial.print(directions[index]);
+    Serial.print(" at index ");
+    Serial.println(index);
 
-  if (current_direction )
-  {
+    // Send coordinates to leader with E12345, 12 = ID, 34 = XY
+    
+    senddata = combine_data(0xE, MAC_ID>>4&0xF, MAC_ID&0xF, position_x, position_y, 0);
+    Serial.print("MAC_ID: ");
+    Serial.print(MAC_ID, HEX);
+    Serial.print("\t Senddata: ");
+    Serial.println(senddata, HEX);
+    // ir_senddata(senddata);
 
-  }
-
+    // Wait for end position
+  } // End of slave
+ 
   return NULL;
 
-  int difference = abs(current_direction-desired_direction);
-  int left, right; // counterclockwise
-  Serial.println("Difference: ");
-  Serial.println(difference);
-  while(difference >= 4) // Keep in function until direction is achieved
-  {
-    // Calculate difference
-    left = (current_direction - desired_direction + 360) % 360; // counterclockwise
-    right = (desired_direction - current_direction + 360) % 360; // clockwise
+  // int difference = abs(current_direction-desired_direction);
+  // int left, right; // counterclockwise
+  // Serial.println("Difference: ");
+  // Serial.println(difference);
+  // while(difference >= 4) // Keep in function until direction is achieved
+  // {
+  //   // Calculate difference
+  //   left = (current_direction - desired_direction + 360) % 360; // counterclockwise
+  //   right = (desired_direction - current_direction + 360) % 360; // clockwise
 
-  // Serial.print("Left: ");
-  // Serial.print(left);
-  // Serial.print("\t right: ");
-  // Serial.println(right);
+  // // Serial.print("Left: ");
+  // // Serial.print(left);
+  // // Serial.print("\t right: ");
+  // // Serial.println(right);
 
-    // Determine shortest turn direction
-    if (left <= right) // Go left
-    {
-      drive_left(5); // counterclockwise
-    }
-    else // Go right
-    {
-      drive_right(5); // clockwise
-    }
+  //   // Determine shortest turn direction
+  //   if (left <= right) // Go left
+  //   {
+  //     drive_left(5); // counterclockwise
+  //   }
+  //   else // Go right
+  //   {
+  //     drive_right(5); // clockwise
+  //   }
 
-    // Serial.print("current direction in while: ");
-    // Serial.println(current_direction);
-    difference = abs(current_direction-desired_direction);
-  }
+  //   // Serial.print("current direction in while: ");
+  //   // Serial.println(current_direction);
+  //   difference = abs(current_direction-desired_direction);
+  // }
 
 }
 
