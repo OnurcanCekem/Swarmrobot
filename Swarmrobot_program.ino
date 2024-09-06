@@ -1,7 +1,7 @@
 //
 // Author: Onurcan Cekem
-// Version: 0.7.1
-// Date: 28-06-2024
+// Version: 0.7.2
+// Date: 02-09-2024
 //***************************************************************************
 /*
  keyestudio 4wd BT Car
@@ -83,6 +83,11 @@ void setup() {
   //Serial Port begin
   Serial.begin (9600);
 
+  // Servo code following Keyestudio's tutorial(unused)
+  // servo_distance.attach(A3);  // attaches the servo on pin A3 to the servo object
+  // servo_distance.write(110);  // Start distance sensor servo at exactly in the middle, because of offset
+  // pinMode(servoPin, OUTPUT);  //set the pins of servo to output
+
   // IR receiver
   // IrReceiver.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
   irrecv.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
@@ -90,17 +95,11 @@ void setup() {
   // IR sender
   // irsend.begin(IR_SEND_PIN); // Call this function to send whenever I'm sending
 
-  // Servo  
-  // servo_distance.attach(A3);  // attaches the servo on pin A3 to the servo object
-  // servo_distance.write(110);  // Start distance sensor servo at exactly in the middle, because of offset
-  // pinMode(servoPin, OUTPUT);  //set the pins of servo to output
-
   // HC-SR04 distance sensor  
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
   pinMode(LED_PIN,OUTPUT);//set pin 9 of LED to OUTPUT
   //procedure(0); //set the angle of servo to 0 degree
-
 
   // Motor
   pinMode(ML_Ctrl, OUTPUT);//set direction control pins of group B motor to output
@@ -162,7 +161,7 @@ int measure_distance(int trigPin, int echoPin)
 }
 
 //function to control servo
-void procedure(int myangle) {
+void servo_procedure(int myangle) {
   pulsewidth = myangle * 11 + 500;  //calculate the value of pulse width
   digitalWrite(servoPin,HIGH);
   delayMicroseconds(pulsewidth);   //The duration of high level is pulse width
@@ -579,15 +578,23 @@ void goto_coordinates(int desired_x, int desired_y)
   Serial.println("Destination arrived.");
 }
 
-uint32_t combine_data(int hex1, int hex2, int hex3, int hex4, int hex5, int hex6)
+/* A function for convenience to combine data byte-to-byte.
+  param hex1: byte 1 (MSB)
+  param hex2: byte 2
+  param hex3: byte 3
+  param hex4: byte 4
+  param hex5: byte 5
+  param hex6: byte 6 (LSB)
+*/
+uint32_t combine_irdata(int hex1, int hex2, int hex3, int hex4, int hex5, int hex6)
 {
   uint32_t data;
-  data |= (uint32_t) hex1 << 20;
-  data |= (uint32_t) hex2 << 16;
-  data |= hex3 << 12;
-  data |= hex4 << 8;
-  data |= hex5 << 4;
-  data |= hex6;
+  data |= (uint32_t) hex1 << 20;// 0x1----- MSB
+  data |= (uint32_t) hex2 << 16;// 0x-1----
+  data |= hex3 << 12;           // 0x--1---
+  data |= hex4 << 8;            // 0x---1--
+  data |= hex5 << 4;            // 0x----1-
+  data |= hex6;                 // 0x-----1 LSB
   // Serial.print("data: ");
   // Serial.println(data, HEX);
   return data;
@@ -891,7 +898,7 @@ void phase_2()
 
     // Send coordinates to leader with E12345, 12 = ID, 34 = XY
     
-    senddata = combine_data(0xE, MAC_ID>>4&0xF, MAC_ID&0xF, position_x, position_y, 0);
+    senddata = combine_irdata(0xE, MAC_ID>>4&0xF, MAC_ID&0xF, position_x, position_y, 0);
     Serial.print("MAC_ID: ");
     Serial.print(MAC_ID, HEX);
     Serial.print("\t Senddata: ");
@@ -957,7 +964,7 @@ void store_id(int received_ID)
       Serial.print(stored_id[i]);
       break;
     }
-    else
+    else // Else print everything
     {
     Serial.print(stored_id[i]);
     Serial.print(" ");
@@ -974,22 +981,24 @@ int incomingByte; // for incoming serial data
 void loop() {
   // measure_distance(trigPin, echoPin);
   // Serial.println(ir_data, HEX);
-  if(incomingByte == 1)
+  if(incomingByte == 1) // Start phase 0
   {
     // Serial.println("Let's go");
     phase_0();
     delay(1000);
     // print_map();
   }
-  if(incomingByte == 2)
+
+  if(incomingByte == 2) // Receiver
   {
     // Serial.println("Let's go");
     ir_receive();
+    Serial.println("");
     delay(1000);
     // print_map();
   }
   
-  if(incomingByte == 3)
+  if(incomingByte == 3) // Store ID test
   {
     // Serial.println("Let's go");
     store_id(0);
@@ -997,7 +1006,36 @@ void loop() {
     // print_map();
   }
 
+  if(incomingByte == 4) // Store ID test
+  {
+    uint32_t asd = 0xFF20FF;
+    Serial.print("Sending data: ");
+    Serial.println(asd, HEX);
+    
+    
+    while(incomingByte == 4)
+    {
+      ir_senddata(asd);
+      if (Serial.available() > 0) { // Check serial 
+        // read the incoming byte:
+        String input = Serial.readStringUntil('\n');
 
+        // Convert the string to an integer
+        // Convert the string to an unsigned int (hexadecimal)
+        
+        incomingByte = strtoul(input.c_str(), NULL, 16);
+        int data2 = input.toInt();
+        Serial.print("Data2: ");
+        Serial.println(data2);
+        // incomingByte = Serial.read();// read the incoming data as string
+        // // say what you got:
+        Serial.print("I received: ");
+        Serial.println(incomingByte);
+      }
+    }
+    delay(25);
+    // print_map();
+  }
 
   // Distance sensor
   // distance = measure_distance(trigPin, echoPin);
