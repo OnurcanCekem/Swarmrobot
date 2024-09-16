@@ -1,14 +1,9 @@
-//
-// Author: Onurcan Cekem
-// Version: 0.7.4
-// Date: 14-09-2024
-//***************************************************************************
-/*
- keyestudio 4wd BT Car
- lesson 5.1
- Ultrasonic Sensor
- http://www.keyestudio.com
-*/ 
+/* Author: Onurcan Cekem
+ * Version: 0.7.5
+ * Date: 16-09-2024
+ * Used robot kit: https://docs.keyestudio.com/projects/KS0559/en/latest/Arduino/arduino.html
+ * Description: This is part of the Bachelor's Thesis zwermgedrag (swarm behavior) where robots are designed for pattern formation.
+ */
 #include <Arduino.h>
 #include <Servo.h> // Wheel library
 #include <IRremote.hpp>     //IRremote library statement 
@@ -19,14 +14,14 @@
 #define DEBUG
 // #define BLUETOOTH
 #define IR_RECEIVE_PIN 3 //define the pins of IR receiver as D3
-#define IR_SEND_PIN A0
+#define IR_SEND_PIN A0 // Define IR-led as A0
 #define servoPin A3  //servo Pin
 #define ML_Ctrl 2  //define the direction control pins of group B motor
 #define ML_PWM 5   //define the PWM control pins of group B motor
 #define MR_Ctrl 4  //define the direction control pins of group A motor
 #define MR_PWM 6   //define the PWM control pins of group A motor
 #define LED_PIN 9 //define the pin of LED as pin 9
-#define DECODE_NEC
+#define DECODE_NEC // Define which IR protocol is selected
 
 // Pins
 int trigPin = 12;    // Ultrasonic Trigger
@@ -48,35 +43,35 @@ Servo servo_distance;  // create servo object to control a servo
 // IR
 unsigned long ir_recv_data; // Variable to store received infrared data
 unsigned long ir_send_data; // Variable to store received infrared data
-uint32_t senddata = 0xFFFFFF;
+uint32_t senddata = 0xFFFFFF; // Variable to store data to send
 uint8_t received_ID = 0; // Variable to store received slave ID
 unsigned long acknowledge_protocol = 0xDFFFF0; // Variable to determine protocol for own acknowledgement
 
 // Bluetooth
 #ifdef BLUETOOTH
-SoftwareSerial bt(0,1); /* Rx,Tx for bluetooth */	
+SoftwareSerial bt(0,1); /* Rx,Tx for bluetooth */  
 #endif BLUETOOTH
 
 // Compass
 QMC5883L compass; // Compass class
-int calibrated_North = 135;
-int calibrated_East = 225;
-int calibrated_South = 315;
-int calibrated_West = 45;
+int calibrated_North = 135; // Variable to store direction North
+int calibrated_East = 225;  // Variable to store direction East
+int calibrated_South = 315; // Variable to store direction South
+int calibrated_West = 45;   // Variable to store direction West
 
 // Robot mapping
-uint8_t grid_map[5][5] = {{0,0,0,0,0},
+uint8_t grid_map[5][5] = {{0,0,0,0,0}, // grid_map[y][x]
                           {0,0,0,0,0},
                           {0,0,1,0,0},
                           {0,0,0,0,0},
                           {0,0,0,0,0}};
 const int numRows = 5;
 const int numCols = 5;
-int position_y = 2;
-int position_x = 2; // x,y
+int position_y = 2; // Variable to store coordinate y
+int position_x = 2; // Variable to store coordinate x 
 uint8_t robot_ID = 0; // Variable to store own robot ID
 unsigned int stored_id[5] = {0,0,0,0,0}; // Used for leader to keep track of slave ID's
-unsigned int MAC_ID = 0; // Generate MAC_ID, an ID that's randomly generated and won't change after
+unsigned int MAC_ID = 0; // Generate MAC_ID, an ID that's randomly generated in setup and won't change after
 
 
 void setup() {
@@ -90,7 +85,7 @@ void setup() {
 
   // IR receiver
   // IrReceiver.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
-  irrecv.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
+  irrecv.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK); // Enable reading IR receiver
 
   // IR sender
   // irsend.begin(IR_SEND_PIN); // Call this function to send whenever I'm sending
@@ -109,18 +104,17 @@ void setup() {
 
   // Compass
   Wire.begin();
-	compass.init();
-	compass.setSamplingRate(50);
+  compass.init();
+  compass.setSamplingRate(50);
 
   // Bluetooth
   #ifdef BLUETOOTH
-  bt.begin(9600);	/* Define baud rate for software serial communication */
+  bt.begin(9600); /* Define baud rate for software serial communication */
   #endif BLUETOOTH
   Serial.println("Damn homie, we chilling");
   
-  // Mapping stuff
-  // unsigned int MAC_ID = random(1, 254); // Generate MAC_ID, an ID that won't change
-  randomSeed(analogRead(0));
+  // Mapping stuff 
+  randomSeed(analogRead(0)); // Random not random fix
   MAC_ID = random(1, 254); // Generate MAC_ID, an ID that won't change
   
   delay(1000);
@@ -128,10 +122,11 @@ void setup() {
   // phase_0(); // Start program to determine leader
 }
 
-// Function for distance sensor HC-SR04 to measure distance
-// Input: trigger pin: pin for sensor
-// Input: echo    pin: pin for sensor       
-// Return: distance in centimeters
+/* Function for distance sensor HC-SR04 to measure distance
+ * param: trigger pin: TRIG D13
+ * param: echo    pin: ECHO D12
+ * Return: distance in centimeters
+ */
 int measure_distance(int trigPin, int echoPin)
 {
   // The sensor is triggered by a HIGH pulse of 10 or more microseconds.
@@ -160,7 +155,10 @@ int measure_distance(int trigPin, int echoPin)
   return cm;
 }
 
-//function to control servo
+/* function to control servo for distance sensor (unused)
+ * param: myangle   1-180 Desired angle, aiming straight forward can range between 90-110 for each robot. 
+ * KEEP IN MIND myangle can go out of bounds. If so, this could overheat the servo
+ */
 void servo_procedure(int myangle) {
   pulsewidth = myangle * 11 + 500;  //calculate the value of pulse width
   digitalWrite(servoPin,HIGH);
@@ -169,8 +167,9 @@ void servo_procedure(int myangle) {
   delay((20 - pulsewidth / 1000));  //the cycle is 20ms, the low level last for the rest of time
 }
 
-// Function for distance sensor to turn and scan
-// It will automatically do a 180 degree spin
+/* Function for distance sensor to turn and scan
+ * It will automatically turn the servo to do a 180 degree spin
+ */
 void turn_distance_sensor()
 {
   int distance;
@@ -189,7 +188,9 @@ void turn_distance_sensor()
   }
 }
 
-// Driving functions, Set motor to drive forward
+/* Function set motor to drive forward
+ * param: ms_time   drive for how long in ms
+ */
 void drive_forward(int ms_time)
 {
   digitalWrite(ML_Ctrl,HIGH);//set the direction control pins of group B motor to HIGH
@@ -199,7 +200,9 @@ void drive_forward(int ms_time)
   delay(ms_time);//delay in 2000ms)
 }
 
-// Set motor to drive backwards
+/* Function set motor to drive backwards
+ * param: ms_time   drive for how long in ms
+ */
 void drive_back(int ms_time)
 {
   digitalWrite(ML_Ctrl,LOW);//set the direction control pins of group B motor to LOW level
@@ -209,7 +212,9 @@ void drive_back(int ms_time)
   delay(ms_time);//delay in 2000ms)
 }
 
-// Set motor to drive left
+/* Function set motor to drive left
+ * param: ms_time   drive for how long in ms
+ */
 void drive_left(int ms_time)
 {
   digitalWrite(ML_Ctrl,LOW);//set the direction control pins of group B motor to LOW level
@@ -219,7 +224,9 @@ void drive_left(int ms_time)
   delay(ms_time);//delay in 2000ms)
 }
 
-// Set motor to drive right
+/* Function set motor to drive right
+ * param: ms_time   drive for how long in ms
+ */
 void drive_right(int ms_time)
 {
   digitalWrite(ML_Ctrl,HIGH);//set the direction control pins of group B motor to HIGH level
@@ -229,7 +236,9 @@ void drive_right(int ms_time)
   delay(ms_time);//delay in 2000ms)
 }
 
-// Set motor to stop driving
+/* Function set motor to stop driving
+ * param: ms_time   stop for how long in ms
+ */
 void drive_stop(int ms_time)
 {
   digitalWrite(ML_Ctrl, LOW);// set the direction control pins of group B motor to LOW level
@@ -239,9 +248,10 @@ void drive_stop(int ms_time)
   delay(ms_time);//delay in 2000ms)
 }
 
+/* Function to read bluetooth (unused, untested)
+ * BT24 is the name of the module
+ */
 #ifdef BLUETOOTH
-// BT24 is the name of the module
-// Function to read bluetooth
 uint32_t bluetooth_read()
 {
   if (Serial.available() > 0) //Check whether there is data in the serial port cache
@@ -250,26 +260,30 @@ uint32_t bluetooth_read()
     Serial.print("DATA RECEIVED:");
     Serial.println(data);
     if (data == 'F') {
-      digitalWrite(LED_PIN, HIGH);
+      digitalWrite(LED_PIN, HIGH); // Turn LED on
       Serial.println("led on");
     }
     if (data == 'B') 
     {
-      digitalWrite(LED_PIN, LOW);
+      digitalWrite(LED_PIN, LOW); // Turn LED off
       Serial.println("led off");
     }
    }
    return data;
 }
 
-// Function to send data over bluetooth
+/* Function to send data over bluetooth
+ * Sends data through Serial monitor
+ */
 void bluetooth_send()
 {
   Serial.println(data);
 }
 #endif BLUETOOTH
 
-// Check infrared and print if something is received
+/* Function to check infrared receiver for messages
+ * Print in Serial if something is received
+ */
 void ir_receive()
 {
   // irrecv.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
@@ -296,8 +310,8 @@ void ir_receive()
       Serial.print("Destination Y: ");
       Serial.println(destination_y);
 
-      // Send D12345, 1 = ID, 2&3 = MAC_ID, D = acknowledge
-      long senddata = (0xD << 20) + (robot_ID << 16) + (MAC_ID << 8);
+      // Send 0xD12345, D = acknowledge, 1&2 = MAC_ID 
+      long senddata = (0xD << 20) + (MAC_ID << 12);
       ir_senddata(senddata);
     }
     else
@@ -344,7 +358,10 @@ void ir_receive()
   }
 }
 
-// Function to send data through IR.
+/* Function to send data with IR-led.
+ * Sends data with NEC_MSB protocol
+ * param: data    Data that is being sent (24 bit, 0x--345678)
+ */
 void ir_senddata(unsigned long data)
 {
   irsend.begin(IR_SEND_PIN); // Enable sending IR.
@@ -362,7 +379,11 @@ void ir_senddata(unsigned long data)
   return NULL;
 }
 
-// Function to reverse from MSB to LSB. Used for IR protocol NEC.
+/* Function to reverse from MSB to LSB. 
+ * Used for IR protocol NEC.
+ * param: num   a 32-bit value (input is generally IrReceiver.decodedIRData.decodedRawData)
+ * Return: num but reversed 
+ */
 uint32_t reverseBits(uint32_t num) {
   uint32_t reversedNum = 0;
 
@@ -375,7 +396,9 @@ uint32_t reverseBits(uint32_t num) {
   return reversedNum;
 }
 
-// Read the serial port for sending IR data
+/* Function to Read the serial port for sending IR data
+ * Return: data read from IR
+ */
 uint32_t readSerial_IR()
 {
   if (Serial.available() > 0) 
@@ -391,16 +414,17 @@ uint32_t readSerial_IR()
   return data;
 }
 
-// Function to read compass
-// Returns degrees (1-360)
+/* Function to read compass
+ * Return: degrees (1-360)
+ */
 int readCompass()
 {
-	int heading = compass.readHeading();
-	if(heading==0) {
-		/* Still calibrating, so measure but don't print */
-	} else {
-		Serial.print(heading);
-	}
+  int heading = compass.readHeading();
+  if(heading==0) {
+    /* Still calibrating, so measure but don't print */
+  } else {
+    Serial.print(heading);
+  }
   #ifdef DEBUG
   // if (heading > 270) Serial.println("N");
   // else if (heading > 180) Serial.println("E");
@@ -410,7 +434,9 @@ int readCompass()
   return heading;
 }
 
-// Function to turn the car until given degrees of direction
+/* Function to turn the car until desired degrees of direction
+ * param: desired_direction   1-360
+ */
 void turn_until_degrees(int desired_direction)
 {
   int current_direction = readCompass(); 
@@ -445,39 +471,41 @@ void turn_until_degrees(int desired_direction)
     difference = abs(current_direction-desired_direction);
   }
   drive_stop(1);
-  Serial.print("Achieved desired: ");
+  Serial.print("Achieved desired direction: ");
   Serial.println(desired_direction);
 }
 
-// Function to drive 10 cm forwards
+/* Function to drive 10 cm forwards
+ */
 void drive_10cm()
 {
   int starting_distance, current_distance;
-  starting_distance = measure_distance(trigPin, echoPin);
+  starting_distance = measure_distance(trigPin, echoPin); // Measure starting distance
   current_distance = starting_distance;
   Serial.print("Starting 10cm. Distance: ");
   Serial.println(starting_distance);
   delay(500);
-  while (starting_distance - current_distance < 10)
+  while (starting_distance - current_distance < 10) // Continue until 10 cm was travelled
   {
     // Serial.println(current_distance);
     
     // Check if nothing is in front of car
-    current_distance = measure_distance(trigPin, echoPin);
-    if(current_distance <= 10)
+    current_distance = measure_distance(trigPin, echoPin); // Measure distance
+    if(current_distance <= 10) // If an object is below 10 cm threshold, interrupt
     {
       Serial.println("BREAK, BELOW 10 CM");
       break;
     }
     else drive_forward(5); // Else drive forward
   }
-  drive_stop(1);
+  drive_stop(1); // Stop wheels
   Serial.print("ended 10cm. Distance: ");
   Serial.println(current_distance);
 }
 
-// Function to print the map grid.
-// Also updates position_y and y with wherever a 1 in the map is
+/* Function to print the map grid.
+ * Also updates position_y and y with wherever a 1 in the map is
+ */
 void print_map()
 {
   for(int row = 0; row < numRows; row++)
@@ -485,7 +513,7 @@ void print_map()
     for(int col = 0; col < numCols; col++)
     {
       // Find x and y of current location
-      if(grid_map[row][col] == 1)
+      if(grid_map[row][col] == 1) // Find 1, which represents this robots coordinates: grid_map[y][x] == 1
       {
         position_y = row;
         position_x = col;
@@ -504,9 +532,10 @@ void print_map()
 }
 
 /* Function to select a coordinates and drive to it
-  param desired_x: x-coordinates
-  param desired_y: y-coordinates
-*/
+ *  This is basically phase 3
+ *  param desired_x: x-coordinates
+ *  param desired_y: y-coordinates
+ */
 void goto_coordinates(int desired_x, int desired_y)
 {
   int heading;
@@ -569,7 +598,7 @@ void goto_coordinates(int desired_x, int desired_y)
       grid_map[position_y][position_x] = 1; // Update current position
       Serial.println("Go South");
     }
-    else break; // position_y == desired_x // Desired x is found
+    else break; // Desired x is found (position_y == desired_y) 
     Serial.println("Next pos");
     print_map();
     delay(500);
@@ -600,7 +629,10 @@ uint32_t combine_irdata(int hex1, int hex2, int hex3, int hex4, int hex5, int he
   return data;
 }
 
-// Function for start of program, checks if leader exists, else assign one.
+/* Function for start of program, checks if leader exists, else assign one.
+ * Phase 0: 1. Determine leader, rest becomes slave.
+ *          2. Slaves have to connect with leader
+ */
 void phase_0()
 {
   unsigned long startTime = millis();
@@ -714,28 +746,23 @@ void phase_0()
   Serial.print(ir_recv_data, HEX); // Print "old" raw data in HEX
   Serial.print(' '); // Print "old" raw data
   unsigned long ir_temp = ir_recv_data >> 20; // Only grab first 4 bits
-  robot_ID = (ir_recv_data >> 16) & 0xF; // -X---- Grab the second digit
-  // robot_ID = 15;
   senddata = 0xD00000;
   int destination_x = (ir_recv_data >> 12) & 0xF; // --X---Grab the third digit
   int destination_y = (ir_recv_data >> 8 ) & 0xF; // ---X--Grab the fourth digit
   // ir_data[0] = 0xD;
-  // ir_data[1] = robot_ID;
-  // ir_data[2] = MAC_ID >> 4;
-  // ir_data[3] = MAC_ID;
+  // ir_data[1] = MAC_ID >> 4;
+  // ir_data[2] = MAC_ID;
+  // ir_data[3] = 0;
   // ir_data[4] = 0;
   // ir_data[5] = 0;
-  senddata |= (uint32_t)robot_ID << 16; // -X----
-  senddata |= (uint32_t)MAC_ID << 8; // --XX--
-  Serial.print("ID: ");
-  Serial.print(robot_ID, HEX);
-  Serial.print("\t MAC_ID: ");
+  senddata |= (uint32_t)MAC_ID << 12; // -XX---
+  Serial.print("MAC_ID: ");
   Serial.print(MAC_ID, HEX);
   // Serial.print("\t Destination X: ");
   // Serial.print(destination_x);
   // Serial.print("\t Destination Y: ");
   // Serial.println(destination_y);
-  Serial.print(" Senddata: "); // Senddata is D12345, 1 = ID, 2&3 = MAC_ID
+  Serial.print(" Senddata: "); // Senddata is D12345, 1&2 = MAC_ID
   // Serial.println(senddata, BIN);
   
   // for (int i = 23; i >= 0; i--) { // Print all of senddata's bits
@@ -746,9 +773,11 @@ void phase_0()
   Serial.print("\t ");
   Serial.print("0 - D ");
   Serial.print("\t ");
-  Serial.print(" 1+2 - MAC_ID ");
+  Serial.print(" 1 - ID ");
+  Serial.print("\t ");
+  Serial.print(" 2+3 - MAC_ID ");
   if ((ir_recv_data >> 20)  == 0xD) // D----- handshaking protocol
-  {                 // D12345. 1 = MAC_ID, 2 = MAC_ID, 3 = empty , 4 = empty, 5 = empty
+  {                 // D12345, 1 = MAC_ID, 2 = MAC_ID, 3 = empty, 4 = empty, 5 = empty
     
   }
   if ((ir_temp & 0xF) == 0xE) // Check first 4 bits, if it's 15 (E) enable map shennanigans protocol
@@ -764,11 +793,21 @@ void phase_0()
   }
 }
 
+/* Function to separate phase 1
+ * Phase 1: 1. Leader is sending IR, which slaves are trying to receive
+ *          2. Slaves drive around until IR is received.
+ *          3. Slaves try to drive towards leader.
+ */
 void phase_1()
 {
 
 }
 
+/* Function to separate phase 2
+ * Phase 2: 1. Slaves determine their offset with leader and leader receives coordinates from slaves
+ *          2. Leader determines shortest route for each slave
+ *          3. Leader sends slaves destination coordinates.
+ */
 void phase_2()
 {
   // Leader receives coördinates from slaves and calculates shortest route
@@ -940,12 +979,21 @@ void phase_2()
 
 }
 
+/* Function to separate phase 3
+ * Phase 3: Slaves follow the shortest route algorithm.
+ * 1. Receive coordinates
+ * 2. call goto_coordinates() function
+ */
 void phase_3()
 {
 
 }
 
-// Find the first possible empty ID and store it
+// 
+/* Function to store ID
+ * Find the first possible empty ID and store it
+ * param: received_ID   1-5, indicates amount of slaves that can be part of the swarm. Amount is based on stored_id[] size.
+ */
 void store_id(int received_ID)
 {
   Serial.print(" Current list of ID's: ");
@@ -971,11 +1019,8 @@ void store_id(int received_ID)
   Serial.println(" ");
 }
 
+
 int incomingByte; // for incoming serial data
-// void loop()
-// {
-//   ir_receive();
-// }
 void loop() {
   // measure_distance(trigPin, echoPin);
   // Serial.println(ir_data, HEX);
@@ -987,7 +1032,7 @@ void loop() {
     // print_map();
   }
 
-  if(incomingByte == 2) // Receiver
+  if(incomingByte == 2) // Enable IR Receiver
   {
     // Serial.println("Let's go");
     ir_receive();
@@ -1004,19 +1049,17 @@ void loop() {
     // print_map();
   }
 
-  if(incomingByte == 4) // Store ID test
+  if(incomingByte == 4) // IR-led send test
   {
-    senddata  = 0xFF20FF;
+    senddata = 0xF20FFF; // Random hex where ID is 32 (20 in hex)
     Serial.print("Sending data: ");
     Serial.println(senddata, HEX);
     
     
-    while(incomingByte == 4)
+    while(incomingByte == 4) // IR-led test
     {
       ir_senddata(senddata);
-      Serial.print("Data sent: ");
-      Serial.println(senddata, HEX);
-      if (Serial.available() > 0) { // Check serial 
+      if (Serial.available() > 0) { // Check serial if something is received
         // read the incoming byte:
         String input = Serial.readStringUntil('\n');
 
@@ -1034,7 +1077,6 @@ void loop() {
       }
     }
     delay(25);
-    // print_map();
   }
 
   // Distance sensor
@@ -1042,7 +1084,7 @@ void loop() {
   // Serial.print("distance = ");
   // Serial.println(distance);
 
-  if (Serial.available() > 0) {
+  if (Serial.available() > 0) { // Read serial
     // read the incoming byte:
     String input = Serial.readStringUntil('\n');
 
@@ -1059,7 +1101,7 @@ void loop() {
     Serial.println(incomingByte);
   }
 
-  if(incomingByte == 255)
+  if(incomingByte == 255) // goto 0,2
   {
     // Serial.println("Let's go");
     print_map();
@@ -1071,7 +1113,7 @@ void loop() {
   }
 
 
-  else if(incomingByte == 254)
+  else if(incomingByte == 254) // goto 2,4
   {
     // Serial.println("Let's go");
     print_map();
@@ -1082,7 +1124,7 @@ void loop() {
     delay(10000); // delay 
   }
 
-  else if(incomingByte == 253)
+  else if(incomingByte == 253) // goto 1,1
   {
     // Serial.println("Let's go");
     print_map();
@@ -1126,7 +1168,7 @@ void loop() {
     delay(2000);// delay in 2000ms
   }
 
-  else if(incomingByte == 6) // Reset map
+  else if(incomingByte == 6) // Reset map, goto 4,2
   {
     // Serial.println("Let's go");
     print_map();
@@ -1134,25 +1176,24 @@ void loop() {
     goto_coordinates(4,2); // x y
     // print_map();
 
-    delay(10000);// delay in 2000ms
+    delay(10000);// delay in 10000ms
   }
+}
+/*
+ * The code beyond here is old, outdated or junk
+ */
   // Serial.println("You donno");
   // find_current_location();
   // readCompass();
-  // Serial.print("Amogus");
+  // Serial.print("Yeet");
   // Serial.println(MAC_ID);
   // turn_until_degrees(90);
   // delay(1000);
 
-  
-    
   //turn_distance_sensor();
   // digitalWrite(9, HIGH); // turn the LED on (HIGH is the voltage level)
   // delay(125);
   // // digitalWrite(9, LOW); // turn the LED off by making the voltage LOW
-}
-
-
 
 // void find_current_location()
 // {
@@ -1183,13 +1224,12 @@ void loop() {
   // irrecv.enableIRIn();
   
   // Bluetooth testing
-  // if (bt.available())	/* If data is available on serial port */
+  // if (bt.available())  /* If data is available on serial port */
   // {
   //   // Send the data to the Bluetooth serial
   //   bt.write(data);
   //   // Optionally, print the data to the Serial Monitor
   //   // Serial.print("Sent via Bluetooth: ");
   //   // Serial.println(data);
-  //   Serial.write(bt.read());	/* Print character received on to the serial monitor */
+  //   Serial.write(bt.read()); /* Print character received on to the serial monitor */
   // }
-//***************************************************************************
