@@ -1,6 +1,6 @@
 /* Author: Onurcan Cekem
- * Version: 0.7.5
- * Date: 16-09-2024
+ * Version: 0.7.6
+ * Date: 04-10-2024
  * Used robot kit: https://docs.keyestudio.com/projects/KS0559/en/latest/Arduino/arduino.html
  * Description: This is part of the Bachelor's Thesis zwermgedrag (swarm behavior) where robots are designed for pattern formation.
  */
@@ -120,6 +120,8 @@ void setup() {
   delay(1000);
   phase_2();
   // phase_0(); // Start program to determine leader
+  formation_selection_5x5();
+  print_map();
 }
 
 /* Function for distance sensor HC-SR04 to measure distance
@@ -518,6 +520,11 @@ void print_map()
         position_y = row;
         position_x = col;
       }
+      // if(row == 0 && col == 1) // Find 1, which represents this robots coordinates: grid_map[y][x] == 1
+      // {
+      //   grid_map[row][col] = 1;
+      // }
+      
       Serial.print(grid_map[row][col]); // Print map
       Serial.print("\t");
     }
@@ -1019,6 +1026,143 @@ void store_id(int received_ID)
   Serial.println(" ");
 }
 
+/* Function to calculate absolute distance
+ * Used for routeplanning by the leader to determine which robots has the shortest route
+ * param x1: x start position
+ * param y1: y start position
+ * param x2: x end position 
+ * param y2: y end position 
+ */
+int manhattan_distance(int x1, int y1, int x2, int y2)
+{
+  return abs(x1 - x2) + abs(y1 - y2);
+}
+    
+
+/* Function to create formations (line, v-form, square/triangle)
+ * Retrieve data from ir and select a form
+ * 
+ */
+void formation_selection_5x5()
+{
+  uint8_t robot2_start[2] = {1,2}, robot3_start[2] = {3,1};
+
+  // Debug
+  grid_map[1][2] = 2;
+  grid_map[3][1] = 3;
+  print_map();
+  grid_map[1][2] = 0;
+  grid_map[3][1] = 0;
+
+  Serial.println("Above is map of current pos");
+  uint8_t robot2_end[2], robot3_end[2]; // [y,x]
+  // Grab starting positions
+  // robot2_start;
+  // robot3_start;
+  if(0) // line
+  {
+  /*[ 0, 0, 0, 0, 0 ]
+    [ 0, 0, 0, 0, 0 ]
+    [ 0, 2, 1, 3, 0 ] 
+    [ 0, 0, 0, 0, 0 ]
+    [ 0, 0, 0, 0, 0 ]*/
+    robot2_end[0] = 2, robot2_end[1] = 1; // Remember robot2 end position
+    robot3_end[0] = 2, robot3_end[1] = 3; // Remember robot2 end position
+    grid_map[2][1] = 2;
+    grid_map[2][3] = 3;
+    
+  }
+  else if(2) // v-form
+  {
+  /*[ 0, 0, 0, 0, 0 ]
+    [ 0, 0, 0, 0, 0 ]
+    [ 0, 0, 1, 0, 0 ] 
+    [ 0, 2, 0, 3, 0 ]
+    [ 0, 0, 0, 0, 0 ]*/
+    robot2_end[0] = 3, robot2_end[1] = 1;
+    robot3_end[0] = 3, robot3_end[1] = 3;
+    grid_map[3][1] = 2;
+    grid_map[3][3] = 3;
+  }
+  else if(3) // square/triangle
+  {
+  /*[ 0, 0, 0, 0, 0 ]
+    [ 0, 0, 0, 0, 0 ]
+    [ 0, 0, 1, 0, 3 ] 
+    [ 0, 0, 0, 0, 0 ]
+    [ 0, 0, 2, 0, 0 ]*/
+    robot2_end[0] = 4, robot2_end[1] = 2;
+    robot3_end[0] = 2, robot3_end[1] = 4;
+    grid_map[4][2] = 2;
+    grid_map[2][4] = 3;
+
+  }
+  else
+  {
+    Serial.println("No valid location was given in formation_selection");
+    return NULL;
+  }
+  // End of formation selection
+  
+  // Start of calculating manhattan distance which is shortest route for each robot
+  uint8_t distance_robot2_to_2_end = manhattan_distance(robot2_start[0], robot2_start[1], robot2_end[0], robot2_end[1]);
+  uint8_t distance_robot2_to_3_end = manhattan_distance(robot2_start[0], robot2_start[1], robot3_end[0], robot3_end[1]);
+  uint8_t distance_robot3_to_2_end = manhattan_distance(robot3_start[0], robot3_start[1], robot2_end[0], robot2_end[1]);
+  uint8_t distance_robot3_to_3_end = manhattan_distance(robot3_start[0], robot3_start[1], robot3_end[0], robot3_end[1]);
+
+  // Debug print
+  // Serial.print("Current distance 2:2: ");
+  // Serial.println(distance_robot2_to_2_end);
+  // Serial.print("Current distance 3:3: ");
+  // Serial.println(distance_robot3_to_3_end);
+
+  // Serial.print("Alternative Distance 2:3: ");
+  // Serial.println(distance_robot2_to_3_end);
+  // Serial.print("Alternative Distance 3:2: ");
+  // Serial.println(distance_robot3_to_2_end);
+
+  // If distance from 2 to 2 is shorter than 2 to 3. AND if distance from 3 to 3 is shorter than 3 to 2.
+  // Basically, check if it's worth to swap routes.
+  if (distance_robot2_to_3_end <= distance_robot2_to_2_end &&
+      distance_robot3_to_2_end <= distance_robot3_to_3_end) {
+    
+    // if-condition to check if it's worth swapping
+    // If both routes have the same distance, do nothing
+    if (distance_robot2_to_3_end == distance_robot2_to_2_end &&
+        distance_robot3_to_2_end == distance_robot3_to_3_end){
+      // No swap needed
+      Serial.println("No swap needed");
+    }
+
+    else // Swap needed
+    {
+      Serial.println("Swap needed");
+      uint8_t swap_positions[2]; // Storage for swapping both coordinates
+      swap_positions[0] = robot2_end[0];
+      swap_positions[1] = robot2_end[1];
+      robot2_end[0] = robot3_end[0];
+      robot2_end[1] = robot3_end[1];
+      robot3_end[0] = swap_positions[0];
+      robot3_end[1] = swap_positions[1];
+      
+      // Debug print
+      Serial.print("robot2_end: ");
+      Serial.print(robot2_end[0]); 
+      Serial.println(robot2_end[1]);
+      
+      // Update map
+      grid_map[robot2_end[0]][robot2_end[1]] = 2; 
+      grid_map[robot3_end[0]][robot3_end[1]] = 3;
+    }
+
+  } 
+  else // No swap needed
+  { 
+    Serial.println("No swap needed");
+    // // No swap needed
+  }
+
+}
 
 int incomingByte; // for incoming serial data
 void loop() {
